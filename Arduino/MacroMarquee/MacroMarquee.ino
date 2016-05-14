@@ -380,22 +380,77 @@ void loop() {
   // Must do AFTER the cli(). 
   // TODO: Add offBits also to maintain the pullup state of unused pins. 
   
-  const char *m = "  NeoPixels are not that hard. Much has been written about how picky NeoPixels are about timing. According to the excellent AdaFruit Uberguide, “the control signal has very strict timing requirements” and people have used many exotic and complex methods to meet these strict requirements- including cycle counting, PWM, SPI, and even UARTs with extra inverter hardware.\
-The standard way to drive NeoPixels with an Arduino is using the AdaFruit library which has some very fancy assembly code that was meticulously hand crafted to get every tick to land in precisely the right place. This time-tested library works great and if it suits your needs then you should by all means use it- but woe to he who would attempt to try to change even one line of it.\
-Unfortunately I could not use this library for my project anyway because it needs 3 bytes of RAM for each pixel (one byte for each R, G, and B value) in the string. It needs all that memory to get everything ready so that it can dump all the pixels as one giant, perfectly timed bit squirt. My display had 1,440 pixels, so no way this was going to work with on my humble  Arduino with 1K of RAM.\
-Luckily, it turns out that NeoPixels are not really that picky about timing once you get to know them.";
+  const char *m = 
+"                                                                                                                                      "        
+"’Twas brillig, and the slithy toves "
+      "Did gyre and gimble in the wabe: "
+"All mimsy were the borogoves, "
+      "And the mome raths outgrabe. "
+
+"Beware the Jabberwock, my son! "
+      "The jaws that bite, the claws that catch! "
+"Beware the Jubjub bird, and shun "      
+      "The frumious Bandersnatch! "
+
+"He took his vorpal sword in hand; "
+      "Long time the manxome foe he sought— "
+"So rested he by the Tumtum tree "
+      "And stood awhile in thought. "
+
+"And, as in uffish thought he stood, "
+      "The Jabberwock, with eyes of flame, "
+"Came whiffling through the tulgey wood, "      
+      "And burbled as it came! "
+
+"One, two! One, two! And through and through "
+      "The vorpal blade went snicker-snack! "
+"He left it dead, and with its head "
+      "He went galumphing back. "
+
+"And hast thou slain the Jabberwock? "
+      "Come to my arms, my beamish boy! "
+"O frabjous day! Callooh! Callay! "
+      "He chortled in his joy. "
+
+"’Twas brillig, and the slithy toves "
+      "Did gyre and gimble in the wabe: "
+"All mimsy were the borogoves, "
+      "And the mome raths outgrabe."  
+
+      ;
+
+  int colorcycle=0;
+
+  while (*m) {      
+
+      colorcycle++;
+
+      if (colorcycle>=256*3) {
+        colorcycle=0;
+      }
+
+      uint8_t r,g,b;
+
+      if (colorcycle<256) {
+        r=colorcycle;
+        b=255-colorcycle;
+      } else if (colorcycle<512) {
+        g=colorcycle;
+        r=255-colorcycle;
+      } else {
+        b=colorcycle;
+        g=255-colorcycle;
+      }
 
 
-
-  for( int x =0 ; x < 400 ; x++ ) {
-
-  
+    
     for( uint8_t step=0; step<CHAR_WIDTH+INTERCHAR_SPACE  ; step++ ) {   // step though each column of the 1st char for smooth scrolling
+
 
 
       cli();
 
-      sendString( m , step ,0, 5 ,  0 , onBits );
+      sendString( m , step ,r, g ,  b , onBits );
             PORTD|=1; // TODO: For debugging
       
       sei();
