@@ -56,7 +56,7 @@
 /// and generate "marco already defined" errors. Arg.
 
   
-/*
+
 static inline void sendBitX8( const uint8_t bitx8 , const uint8_t onBits) {
               
     asm volatile (
@@ -64,11 +64,17 @@ static inline void sendBitX8( const uint8_t bitx8 , const uint8_t onBits) {
 
       "out %[port], %[onBits] \n\t"                // 1st step - send T0H high 
       
-      "DELAYC %[T0HCycles] \n\t"         // Execute NOPs to delay exactly the specified number of cycles
+      ".rept %[T0HCycles] \n\t"         // Execute NOPs to delay exactly the specified number of cycles
+         "nop \n\t"
+      ".endr \n\t"      
+
       
       "out %[port], %[bits] \n\t"                             // set the output bits to thier values for T0H-T1H
-      "DELAYC %[offCycles] \n\t"                               // Execute NOPs to delay exactly the specified number of cycles
       
+      ".rept %[offCycles] \n\t"                               // Execute NOPs to delay exactly the specified number of cycles
+        "nop \n\t"
+      ".endr \n\t"
+            
       "out %[port],__zero_reg__  \n\t"                // last step - T1L all bits low
 
       // Don't need an explicit delay here since the overhead that follows will always be long enough
@@ -91,7 +97,7 @@ static inline void sendBitX8( const uint8_t bitx8 , const uint8_t onBits) {
     
 }  
 
-*/ 
+
 
 
 // Send a full 8 bits down all the pins, represening a single color of 1 pixel
@@ -154,7 +160,7 @@ static inline void sendRowAsm(  const uint8_t row , const uint8_t colorbyte , co
     
 }  
 
-/*
+
 // Sends a single color for a single row (1/3 of one pixel per string)
 // The row is the bits for each of the strings. 0=off, 1=on to specified color
 // This could be so much faster in pure ASM...
@@ -187,7 +193,7 @@ static void sendRowByteFaster( const uint8_t row , const uint8_t colorbyte , con
 
 }
 
-static void sendRowByte( const uint8_t row , const uint8_t colorbyte , const uint8_t onBits ) {
+static void sendRow( const uint8_t row , const uint8_t colorbyte , const uint8_t onBits ) {
 
   // TODO: Convert to ASM to save that pesky extra LDI load of onBits. 
 
@@ -206,13 +212,15 @@ static void sendRowByte( const uint8_t row , const uint8_t colorbyte , const uin
 }
 
 
-*/
+
+
+// This still wastes about 1us per byte becuase of the overhead of setting up registers and calling, but it is pretty darn fast.
 
 static inline void __attribute__ ((always_inline)) sendRowRGB( uint8_t row ,  uint8_t r,  uint8_t g,  uint8_t b , uint8_t onBits ) {
 
-  sendRowAsm( row , g , onBits);    // WS2812 takes colors in GRB order
-  sendRowAsm( row , r , onBits);    // WS2812 takes colors in GRB order
-  sendRowAsm( row , b , onBits);    // WS2812 takes colors in GRB order
+  sendRow( row , g , onBits);    // WS2812 takes colors in GRB order
+  sendRow( row , r , onBits);    // WS2812 takes colors in GRB order
+  sendRow( row , b , onBits);    // WS2812 takes colors in GRB order
   
 }
 
@@ -380,7 +388,10 @@ static inline void sendString( const char *s , uint8_t skip ,  uint8_t r,  uint8
       sendRowRGB( 0 , r , g , b, onBits );   // Inter char spacing
    }
 */
+
+    PORTB |= 0x01;    // TODO: Benchmark only
     sendChar( *s , 0,  r , g , b, onBits );
+    PORTB &= ~0x01;   // TODO: Benchmark only     
 
   }
 }
@@ -439,8 +450,6 @@ void setup() {
 
 void loop() {
 /*
-  PORTD |= 0x01;
-  PORTD &= ~0x01;
   sendRowAsm(  0 , 0 , 0xfe );
   sendRowAsm(  0xfe , 0xff , 0xfe );
   sendRowAsm(  0 , 0 , 0xfe );
@@ -497,6 +506,8 @@ void loop() {
 
   int colorcycle=0;
 
+  DDRB |= 0x01;
+
   while (*m) {      
 
       colorcycle++;
@@ -527,9 +538,11 @@ void loop() {
       cli();
 
       sendString( m , step ,r, g ,  b , onBits );
-            PORTD|=1; // TODO: For debugging
       
+
       sei();
+
+      
       delay(1);
 
     }
