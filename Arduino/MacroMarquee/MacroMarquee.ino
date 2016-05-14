@@ -205,9 +205,9 @@ static void sendRow( const uint8_t row , const uint8_t colorbyte , const uint8_t
 
 static inline void __attribute__ ((always_inline)) sendRowRGB( uint8_t row ,  uint8_t r,  uint8_t g,  uint8_t b , uint8_t onBits ) {
 
-  sendRowFast( row , g , onBits);    // WS2812 takes colors in GRB order
-  sendRowFast( row , r , onBits);    // WS2812 takes colors in GRB order
-  sendRowFast( row , b , onBits);    // WS2812 takes colors in GRB order
+  sendRowAsm( row , g , onBits);    // WS2812 takes colors in GRB order
+  sendRowAsm( row , r , onBits);    // WS2812 takes colors in GRB order
+  sendRowAsm( row , b , onBits);    // WS2812 takes colors in GRB order
   
 }
 
