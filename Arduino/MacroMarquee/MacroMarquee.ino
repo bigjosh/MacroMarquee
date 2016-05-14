@@ -1,5 +1,3 @@
-#include <delay.h>
-
 // Change this to be at least as long as your pixel string (too long will work fine, just be a little slower)
 
 #define PIXELS 96*4  // Number of pixels in the string
@@ -57,22 +55,8 @@
 // If we try to put the macros inside an inlined function, they get emitted each time the function is called
 /// and generate "marco already defined" errors. Arg.
 
-extern void holdmacros() {
-    asm volatile (
-    
-      ".MACRO  DELAYC cycles\n\t"
-      "  .rept \\cycles     ;\n\t"         // Execute NOPs to delay exactly the specified number of cycles
-                                           // Note that we need double backshashes here since the C compiler will see the first one as an escape. Arg. 
-      "     nop       ;\n\t"
-      "  .endr        ;\n\t"
-      ".ENDM          \n\t"
-      ::
-    );
-    
-   
-}  
   
-
+/*
 static inline void sendBitX8( const uint8_t bitx8 , const uint8_t onBits) {
               
     asm volatile (
@@ -107,6 +91,8 @@ static inline void sendBitX8( const uint8_t bitx8 , const uint8_t onBits) {
     
 }  
 
+*/ 
+
 
 // Send a full 8 bits down all the pins, represening a single color of 1 pixel
 // We walk though the 8 bits in colorbyte one at a time. If the bit is 1 then we send the 8 bits of row out. Otherwise we send 0. 
@@ -117,31 +103,34 @@ static inline void sendBitX8( const uint8_t bitx8 , const uint8_t onBits) {
 static inline void sendRowAsm(  const uint8_t row , const uint8_t colorbyte , const uint8_t onBits ) {  
               
     asm volatile (
-    
+
+
       "L_%=: \n\r"  
       
       "out %[port], %[onBits] \n\t"                // (1 cycles) - send T0H high (all bits high)
       
       "mov r0, %[bitwalker] \n\t"                  // (1 cycles) 
       "and r0, %[colorbyte] \n\t"                  // (1 cycles) - is the current bit in the color byte set?
-      "mov r0, %[colorbyte] \n\t"                  // (1 cycles) - get possible output bytre ready (does not update Z)
+      "mov r0, %[row]       \n\t"                  // (1 cycles) - get possible output byte ready (does not update Z)
       "brne ON_%= \n\t"                            // (1 cycles) - if zero after the and, then send full zero row
       "mov r0,r1  \n\r"                            // (1 cycles) - bit in colorbyte was zero, so send all 0's. 
       "ON_%=: \n\r"                                //              Note that if we land here becuase of brne, it takes 2 cycles, but it still takes 2 if the brne fell though to the mov
       
-      "ror %[bitwalker] \n\t"                      // (1 cycles) - get ready for next pass. On last pass, the bit will end up in C flag
-      
-      "DELAYC %[T0HCycles]-7 \n\t"                 // Execute NOPs to delay exactly the specified number of cycles
-      
+      // No extra delay here since the above calculation takes 7 cycles, using up the T0H of 350ns (https://www.google.com/webhp?sourceid=chrome-instant&ion=1&espv=2&ie=UTF-8#q=(350ns)%2F(1%2F(16mhz)))
+            
       "out %[port], r0 \n\t"                       // (cycles 1) - set the output bits to [row] or 0x00 based on the bit in colorbyte. This is phase for T0H-T1H
-      
-      "DELAYC %[dataCycles] \n\t"                  // Execute NOPs to delay exactly the specified number of cycles
-      
+
+      // We get T1H-T0H here, which is 350ns (6 cycles at 16mhz)
+
+      "ror %[bitwalker] \n\t"                      // (1 cycles) - get ready for next pass. On last pass, the bit will end up in C flag
+
+      "nop \n\t nop \n\t nop \n\t "
+            
       "out %[port],__zero_reg__  \n\t"             // (1 cycles) last step - T1L all bits low
       
-      "brcc DONE_%= \n\t"                          // (1 cycles) Exit if carry bit is set as a result of us walking all 8 bits. We assume that the process around us will tak long enough to cover the phase 3 delay
+      "brcs DONE_%= \n\t"                          // (1 cycles) Exit if carry bit is set as a result of us walking all 8 bits. We assume that the process around us will tak long enough to cover the phase 3 delay
       
-      "DELAYC %[offCycles]-5 \n\t"                 // Execute NOPs to delay exactly the specified number of cycles
+//      "DELAYC_%= %[offCycles]-5 \n\t"                 // Execute NOPs to delay exactly the specified number of cycles
       
       "jmp L_%= \n\t"                              // (3 cycles) 
             
@@ -153,14 +142,8 @@ static inline void sendRowAsm(  const uint8_t row , const uint8_t colorbyte , co
       [port]    "I" (_SFR_IO_ADDR(PIXEL_PORT)),
       [row]   "d" (row),
       [onBits]   "d" (onBits),
-      [colorbyte]   "d" (colorbyte ),     // Phase 2 of the signal where the actual data bits show up. 
-      
-      
-      [T0HCycles]  "I" (NS_TO_CYCLES(T0H)),    // 1-bit width less overhead  for the actual bit setting, note that this delay could be longer and everything would still work
-      
-      [bitwalker] "r" (0x80) ,                     // Alocate a register to hold a bit that we will walk down though the color byte
-      [dataCycles]   "I" (NS_TO_CYCLES((T1H-T0H)) ),     // Phase 2 of the signal where the actual data bits show up. 
-      [offCycles]   "I" (NS_TO_CYCLES((T1L)) )     // Phase 3 of the signal where the actual data bits show up. 
+      [colorbyte]   "d" (colorbyte ),     // Phase 2 of the signal where the actual data bits show up.                
+      [bitwalker] "r" (0x80)                      // Alocate a register to hold a bit that we will walk down though the color byte
 
     );
                                   
@@ -171,12 +154,12 @@ static inline void sendRowAsm(  const uint8_t row , const uint8_t colorbyte , co
     
 }  
 
-
+/*
 // Sends a single color for a single row (1/3 of one pixel per string)
 // The row is the bits for each of the strings. 0=off, 1=on to specified color
 // This could be so much faster in pure ASM...
 
-static void /* inline void __attribute__ ((always_inline)) */ sendRowOneColor( const uint8_t row , const uint8_t colorbyte , const uint8_t onBits ) {
+static void sendRowByteFaster( const uint8_t row , const uint8_t colorbyte , const uint8_t onBits ) {
 
   // TODO: Convert to ASM to save that pesky extra LDI load of onBits. 
 
@@ -189,7 +172,7 @@ static void /* inline void __attribute__ ((always_inline)) */ sendRowOneColor( c
   sendBitX8( (colorbyte & 0b00000010 ) ? row : 0 , onBits);
   sendBitX8( (colorbyte & 0b00000001 ) ? row : 0 , onBits);
   
-/*
+
   uint8_t bit=8;
 
   while (bit--) {
@@ -202,16 +185,34 @@ static void /* inline void __attribute__ ((always_inline)) */ sendRowOneColor( c
     
   }
 
-  */
+}
+
+static void sendRowByte( const uint8_t row , const uint8_t colorbyte , const uint8_t onBits ) {
+
+  // TODO: Convert to ASM to save that pesky extra LDI load of onBits. 
+
+  uint8_t bit=8;
+
+  while (bit--) {
+
+    if (colorbyte & (1<<bit)) {   // This ends up sending to color value as a bit stream becuase 
+      sendBitX8( row , onBits );           
+    } else {
+      sendBitX8(0 , onBits );
+    }
+    
+  }
 
 }
 
 
+*/
+
 static inline void __attribute__ ((always_inline)) sendRowRGB( uint8_t row ,  uint8_t r,  uint8_t g,  uint8_t b , uint8_t onBits ) {
 
-  sendRowOneColor( row , g , onBits);    // WS2812 takes colors in GRB order
-  sendRowOneColor( row , r , onBits);    // WS2812 takes colors in GRB order
-  sendRowOneColor( row , b , onBits);    // WS2812 takes colors in GRB order
+  sendRowAsm( row , g , onBits);    // WS2812 takes colors in GRB order
+  sendRowAsm( row , r , onBits);    // WS2812 takes colors in GRB order
+  sendRowAsm( row , b , onBits);    // WS2812 takes colors in GRB order
   
 }
 
@@ -437,27 +438,17 @@ void setup() {
 
 
 void loop() {
-
-
 /*
-  char *string = "Josh Levine is a very nice man. ";
+  PORTD |= 0x01;
+  PORTD &= ~0x01;
+  sendRowAsm(  0 , 0 , 0xfe );
+  sendRowAsm(  0xfe , 0xff , 0xfe );
+  sendRowAsm(  0 , 0 , 0xfe );
+  delay(100);
 
+ return;
 
-  for(uint8_t i=0; i<25;i++ ) {
-      cli();
-
-    PIXEL_PORT |=1;
-
-    sendString( "ABCabc" , 0 , i , 0 , 0 , 0xfe );
-  
-    sei();
-
-    delay(100);
-  }
-
-
-  return;
-*/
+ */
 
   const uint8_t onBits = PIXEL_BITMASK;    // Bits that we don't control in the PORT that are already ON, so we can preserve thier state
 
@@ -539,7 +530,7 @@ void loop() {
             PORTD|=1; // TODO: For debugging
       
       sei();
-      delay(10);
+      delay(1);
 
     }
 
