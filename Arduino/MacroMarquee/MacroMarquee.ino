@@ -1,3 +1,5 @@
+#include <delay.h>
+
 // Change this to be at least as long as your pixel string (too long will work fine, just be a little slower)
 
 #define PIXELS 96*4  // Number of pixels in the string
@@ -50,20 +52,38 @@
 // TODO: Can we use delay_cycles here rather than .rep NOPs to save space? 
 // TODO: We could actually compute the next color byte translation while the inital bit phase is bring transmitted to do some pipelining....
 
-static inline __attribute__ ((always_inline)) void sendBitX8( const uint8_t bitx8 , const uint8_t onBits) {
-            
+
+// This dummy function does nothing but emit the macros
+// If we try to put the macros inside an inlined function, they get emitted each time the function is called
+/// and generate "marco already defined" errors. Arg.
+
+extern void holdmacros() {
     asm volatile (
-      
+    
+      ".MACRO  DELAYC cycles\n\t"
+      "  .rept \\cycles     ;\n\t"         // Execute NOPs to delay exactly the specified number of cycles
+                                           // Note that we need double backshashes here since the C compiler will see the first one as an escape. Arg. 
+      "     nop       ;\n\t"
+      "  .endr        ;\n\t"
+      ".ENDM          \n\t"
+      ::
+    );
+    
+   
+}  
+  
+
+static inline void sendBitX8( const uint8_t bitx8 , const uint8_t onBits) {
+              
+    asm volatile (
+    
+
       "out %[port], %[onBits] \n\t"                // 1st step - send T0H high 
       
-      ".rept %[T0HCycles] \n\t"         // Execute NOPs to delay exactly the specified number of cycles
-        "nop \n\t"
-      ".endr \n\t"
+      "DELAYC %[T0HCycles] \n\t"         // Execute NOPs to delay exactly the specified number of cycles
       
       "out %[port], %[bits] \n\t"                             // set the output bits to thier values for T0H-T1H
-      ".rept %[offCycles] \n\t"                               // Execute NOPs to delay exactly the specified number of cycles
-      "nop \n\t"
-      ".endr \n\t"
+      "DELAYC %[offCycles] \n\t"                               // Execute NOPs to delay exactly the specified number of cycles
       
       "out %[port],__zero_reg__  \n\t"                // last step - T1L all bits low
 
@@ -86,6 +106,71 @@ static inline __attribute__ ((always_inline)) void sendBitX8( const uint8_t bitx
     // This has thenice side effect of avoid glitches on very long strings becuase 
     
 }  
+
+
+// Send a full 8 bits down all the pins, represening a single color of 1 pixel
+// We walk though the 8 bits in colorbyte one at a time. If the bit is 1 then we send the 8 bits of row out. Otherwise we send 0. 
+// We send onBits at the first phase of the signal generation. We could just send 0xff, but that mught enable pull-ups on pins that we are not using. 
+
+/// Unforntunately we have to drop to ASM for this so we can interleave the computaions durring the delays, otherwise things get too slow.
+
+static inline void sendRowAsm(  const uint8_t row , const uint8_t colorbyte , const uint8_t onBits ) {  
+              
+    asm volatile (
+    
+      "L_%=: \n\r"  
+      
+      "out %[port], %[onBits] \n\t"                // (1 cycles) - send T0H high (all bits high)
+      
+      "mov r0, %[bitwalker] \n\t"                  // (1 cycles) 
+      "and r0, %[colorbyte] \n\t"                  // (1 cycles) - is the current bit in the color byte set?
+      "mov r0, %[colorbyte] \n\t"                  // (1 cycles) - get possible output bytre ready (does not update Z)
+      "brne ON_%= \n\t"                            // (1 cycles) - if zero after the and, then send full zero row
+      "mov r0,r1  \n\r"                            // (1 cycles) - bit in colorbyte was zero, so send all 0's. 
+      "ON_%=: \n\r"                                //              Note that if we land here becuase of brne, it takes 2 cycles, but it still takes 2 if the brne fell though to the mov
+      
+      "ror %[bitwalker] \n\t"                      // (1 cycles) - get ready for next pass. On last pass, the bit will end up in C flag
+      
+      "DELAYC %[T0HCycles]-7 \n\t"                 // Execute NOPs to delay exactly the specified number of cycles
+      
+      "out %[port], r0 \n\t"                       // (cycles 1) - set the output bits to [row] or 0x00 based on the bit in colorbyte. This is phase for T0H-T1H
+      
+      "DELAYC %[dataCycles] \n\t"                  // Execute NOPs to delay exactly the specified number of cycles
+      
+      "out %[port],__zero_reg__  \n\t"             // (1 cycles) last step - T1L all bits low
+      
+      "brcc DONE_%= \n\t"                          // (1 cycles) Exit if carry bit is set as a result of us walking all 8 bits. We assume that the process around us will tak long enough to cover the phase 3 delay
+      
+      "DELAYC %[offCycles]-5 \n\t"                 // Execute NOPs to delay exactly the specified number of cycles
+      
+      "jmp L_%= \n\t"                              // (3 cycles) 
+            
+      "DONE_%=: \n\t"
+
+      // Don't need an explicit delay here since the overhead that follows will always be long enough
+    
+      ::
+      [port]    "I" (_SFR_IO_ADDR(PIXEL_PORT)),
+      [row]   "d" (row),
+      [onBits]   "d" (onBits),
+      [colorbyte]   "d" (colorbyte ),     // Phase 2 of the signal where the actual data bits show up. 
+      
+      
+      [T0HCycles]  "I" (NS_TO_CYCLES(T0H)),    // 1-bit width less overhead  for the actual bit setting, note that this delay could be longer and everything would still work
+      
+      [bitwalker] "r" (0x80) ,                     // Alocate a register to hold a bit that we will walk down though the color byte
+      [dataCycles]   "I" (NS_TO_CYCLES((T1H-T0H)) ),     // Phase 2 of the signal where the actual data bits show up. 
+      [offCycles]   "I" (NS_TO_CYCLES((T1L)) )     // Phase 3 of the signal where the actual data bits show up. 
+
+    );
+                                  
+
+    // Note that the inter-bit gap can be as long as you want as long as it doesn't exceed the 5us reset timeout (which is A long time)
+    // Here I have been generous and not tried to squeeze the gap tight but instead erred on the side of lots of extra time.
+    // This has thenice side effect of avoid glitches on very long strings becuase 
+    
+}  
+
 
 // Sends a single color for a single row (1/3 of one pixel per string)
 // The row is the bits for each of the strings. 0=off, 1=on to specified color
@@ -322,7 +407,7 @@ void ledsetup() {
 // Just wait long enough without sending any bots to cause the pixels to latch and display the last sent frame
 
 void show() {
-  _delay_us( (RES / 1000UL) + 1);       // Round up since the delay must be _at_least_ this long (too short might not work, too long not a problem)
+  delayMicroseconds( (RES / 1000UL) + 1);       // Round up since the delay must be _at_least_ this long (too short might not work, too long not a problem)
 }
 
 
