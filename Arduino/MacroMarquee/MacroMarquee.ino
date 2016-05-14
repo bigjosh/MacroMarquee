@@ -165,7 +165,7 @@ static inline void sendRowAsm(  const uint8_t row , const uint8_t colorbyte , co
 // The row is the bits for each of the strings. 0=off, 1=on to specified color
 // This could be so much faster in pure ASM...
 
-static void sendRowByteFaster( const uint8_t row , const uint8_t colorbyte , const uint8_t onBits ) {
+static void sendRowFast( const uint8_t row , const uint8_t colorbyte , const uint8_t onBits ) {
 
   // TODO: Convert to ASM to save that pesky extra LDI load of onBits. 
 
@@ -178,19 +178,6 @@ static void sendRowByteFaster( const uint8_t row , const uint8_t colorbyte , con
   sendBitX8( (colorbyte & 0b00000010 ) ? row : 0 , onBits);
   sendBitX8( (colorbyte & 0b00000001 ) ? row : 0 , onBits);
   
-
-  uint8_t bit=8;
-
-  while (bit--) {
-
-    if (colorbyte & (1<<bit)) {   // This ends up sending to color value as a bit stream becuase 
-      sendBitX8( row , onBits );           
-    } else {
-      sendBitX8(0 , onBits );
-    }
-    
-  }
-
 }
 
 static void sendRow( const uint8_t row , const uint8_t colorbyte , const uint8_t onBits ) {
@@ -218,9 +205,9 @@ static void sendRow( const uint8_t row , const uint8_t colorbyte , const uint8_t
 
 static inline void __attribute__ ((always_inline)) sendRowRGB( uint8_t row ,  uint8_t r,  uint8_t g,  uint8_t b , uint8_t onBits ) {
 
-  sendRow( row , g , onBits);    // WS2812 takes colors in GRB order
-  sendRow( row , r , onBits);    // WS2812 takes colors in GRB order
-  sendRow( row , b , onBits);    // WS2812 takes colors in GRB order
+  sendRowFast( row , g , onBits);    // WS2812 takes colors in GRB order
+  sendRowFast( row , r , onBits);    // WS2812 takes colors in GRB order
+  sendRowFast( row , b , onBits);    // WS2812 takes colors in GRB order
   
 }
 
