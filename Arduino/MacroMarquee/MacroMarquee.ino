@@ -1,6 +1,6 @@
 // Change this to be at least as long as your pixel string (too long will work fine, just be a little slower)
 
-#define PIXELS 96*4  // Number of pixels in the string
+#define PIXELS 96*4  // Number of pixels in the string. I am using 4 meters of 96LED/M
 
 // These values depend on which pins your 8 strings are connected to and what board you are using 
 // More info on how to find these at http://www.arduino.cc/en/Reference/PortManipulation
@@ -16,7 +16,7 @@
 
 #define PIXEL_BITMASK 0b11111110  // If you do not want to use all 8 pins, you can mask off the ones you don't want
                                   // Note that these will still get 0 written to them when we send pixels
-                                  // TODO: If we have time, we could even add a varibale that will and/or into the bits before writing to the port to support any combination of bits/values
+                                  // TODO: If we have time, we could even add a variable that will and/or into the bits before writing to the port to support any combination of bits/values
 
 // These are the timing constraints taken mostly from the WS2812 datasheets 
 // These are chosen to be conservative and avoid problems rather than for maximum throughput 
@@ -47,52 +47,7 @@
 // do not turn on unused pins becuae this would enable the pullup. Also, hopefully passing this
 // will cause the compiler to allocate a Register for it and avoid a reload every pass.
 
-// TODO: Can we use delay_cycles here rather than .rep NOPs to save space? 
 // TODO: We could actually compute the next color byte translation while the inital bit phase is bring transmitted to do some pipelining....
-
-
-// This dummy function does nothing but emit the macros
-// If we try to put the macros inside an inlined function, they get emitted each time the function is called
-/// and generate "marco already defined" errors. Arg.
-
-  
-/*
-static inline void sendBitX8( const uint8_t bitx8 , const uint8_t onBits) {
-              
-    asm volatile (
-    
-
-      "out %[port], %[onBits] \n\t"                // 1st step - send T0H high 
-      
-      "DELAYC %[T0HCycles] \n\t"         // Execute NOPs to delay exactly the specified number of cycles
-      
-      "out %[port], %[bits] \n\t"                             // set the output bits to thier values for T0H-T1H
-      "DELAYC %[offCycles] \n\t"                               // Execute NOPs to delay exactly the specified number of cycles
-      
-      "out %[port],__zero_reg__  \n\t"                // last step - T1L all bits low
-
-      // Don't need an explicit delay here since the overhead that follows will always be long enough
-    
-      ::
-      [port]    "I" (_SFR_IO_ADDR(PIXEL_PORT)),
-      [bits]   "d" (bitx8),
-      [onBits]   "d" (onBits),
-      
-      [T0HCycles]  "I" (NS_TO_CYCLES(T0H) - 2),    // 1-bit width less overhead  for the actual bit setting, note that this delay could be longer and everything would still work
-      
-      [offCycles]   "I" (NS_TO_CYCLES((T1H-T0H)) - 2)     // Minimum interbit delay. Note that we probably don't need this at all since the loop overhead will be enough, but here for correctness
-
-    );
-                                  
-
-    // Note that the inter-bit gap can be as long as you want as long as it doesn't exceed the 5us reset timeout (which is A long time)
-    // Here I have been generous and not tried to squeeze the gap tight but instead erred on the side of lots of extra time.
-    // This has thenice side effect of avoid glitches on very long strings becuase 
-    
-}  
-
-*/ 
-
 
 // Send a full 8 bits down all the pins, represening a single color of 1 pixel
 // We walk though the 8 bits in colorbyte one at a time. If the bit is 1 then we send the 8 bits of row out. Otherwise we send 0. 
@@ -100,7 +55,7 @@ static inline void sendBitX8( const uint8_t bitx8 , const uint8_t onBits) {
 
 /// Unforntunately we have to drop to ASM for this so we can interleave the computaions durring the delays, otherwise things get too slow.
 
-static inline void sendRowAsm(  const uint8_t row , const uint8_t colorbyte , const uint8_t onBits ) {  
+static inline void sendBitx8(  const uint8_t row , const uint8_t colorbyte , const uint8_t onBits ) {  
               
     asm volatile (
 
@@ -124,14 +79,12 @@ static inline void sendRowAsm(  const uint8_t row , const uint8_t colorbyte , co
 
       "ror %[bitwalker] \n\t"                      // (1 cycles) - get ready for next pass. On last pass, the bit will end up in C flag
 
-      "nop \n\t nop \n\t nop \n\t "
+      "nop \n\t nop \n\t nop \n\t "                // (3 cycles) - this is phase #2 of the signal, the actual data values
             
       "out %[port],__zero_reg__  \n\t"             // (1 cycles) last step - T1L all bits low
       
       "brcs DONE_%= \n\t"                          // (1 cycles) Exit if carry bit is set as a result of us walking all 8 bits. We assume that the process around us will tak long enough to cover the phase 3 delay
-      
-//      "DELAYC_%= %[offCycles]-5 \n\t"                 // Execute NOPs to delay exactly the specified number of cycles
-      
+            
       "jmp L_%= \n\t"                              // (3 cycles) 
             
       "DONE_%=: \n\t"
@@ -154,65 +107,11 @@ static inline void sendRowAsm(  const uint8_t row , const uint8_t colorbyte , co
     
 }  
 
-/*
-// Sends a single color for a single row (1/3 of one pixel per string)
-// The row is the bits for each of the strings. 0=off, 1=on to specified color
-// This could be so much faster in pure ASM...
+static inline void sendRowRGB( uint8_t row ,  uint8_t r,  uint8_t g,  uint8_t b , uint8_t onBits ) {
 
-static void sendRowByteFaster( const uint8_t row , const uint8_t colorbyte , const uint8_t onBits ) {
-
-  // TODO: Convert to ASM to save that pesky extra LDI load of onBits. 
-
-  sendBitX8( (colorbyte & 0b10000000 ) ? row : 0 , onBits);
-  sendBitX8( (colorbyte & 0b01000000 ) ? row : 0 , onBits);
-  sendBitX8( (colorbyte & 0b00100000 ) ? row : 0 , onBits);
-  sendBitX8( (colorbyte & 0b00010000 ) ? row : 0 , onBits);
-  sendBitX8( (colorbyte & 0b00001000 ) ? row : 0 , onBits);
-  sendBitX8( (colorbyte & 0b00000100 ) ? row : 0 , onBits);
-  sendBitX8( (colorbyte & 0b00000010 ) ? row : 0 , onBits);
-  sendBitX8( (colorbyte & 0b00000001 ) ? row : 0 , onBits);
-  
-
-  uint8_t bit=8;
-
-  while (bit--) {
-
-    if (colorbyte & (1<<bit)) {   // This ends up sending to color value as a bit stream becuase 
-      sendBitX8( row , onBits );           
-    } else {
-      sendBitX8(0 , onBits );
-    }
-    
-  }
-
-}
-
-static void sendRowByte( const uint8_t row , const uint8_t colorbyte , const uint8_t onBits ) {
-
-  // TODO: Convert to ASM to save that pesky extra LDI load of onBits. 
-
-  uint8_t bit=8;
-
-  while (bit--) {
-
-    if (colorbyte & (1<<bit)) {   // This ends up sending to color value as a bit stream becuase 
-      sendBitX8( row , onBits );           
-    } else {
-      sendBitX8(0 , onBits );
-    }
-    
-  }
-
-}
-
-
-*/
-
-static inline void __attribute__ ((always_inline)) sendRowRGB( uint8_t row ,  uint8_t r,  uint8_t g,  uint8_t b , uint8_t onBits ) {
-
-  sendRowAsm( row , g , onBits);    // WS2812 takes colors in GRB order
-  sendRowAsm( row , r , onBits);    // WS2812 takes colors in GRB order
-  sendRowAsm( row , b , onBits);    // WS2812 takes colors in GRB order
+  sendBitx8( row , g , onBits);    // WS2812 takes colors in GRB order
+  sendBitx8( row , r , onBits);    // WS2812 takes colors in GRB order
+  sendBitx8( row , b , onBits);    // WS2812 takes colors in GRB order
   
 }
 
@@ -334,13 +233,33 @@ const uint8_t Font5x7[] PROGMEM = {
 0x10,0x38,0x54,0x10,0x10,// 
 };
 
+// https://learn.adafruit.com/led-tricks-gamma-correction/the-quick-fix
+
+const uint8_t PROGMEM gamma[] = {
+    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  1,  1,  1,  1,
+    1,  1,  1,  1,  1,  1,  1,  1,  1,  2,  2,  2,  2,  2,  2,  2,
+    2,  3,  3,  3,  3,  3,  3,  3,  4,  4,  4,  4,  4,  5,  5,  5,
+    5,  6,  6,  6,  6,  7,  7,  7,  7,  8,  8,  8,  9,  9,  9, 10,
+   10, 10, 11, 11, 11, 12, 12, 13, 13, 13, 14, 14, 15, 15, 16, 16,
+   17, 17, 18, 18, 19, 19, 20, 20, 21, 21, 22, 22, 23, 24, 24, 25,
+   25, 26, 27, 27, 28, 29, 29, 30, 31, 32, 32, 33, 34, 35, 35, 36,
+   37, 38, 39, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 50,
+   51, 52, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 66, 67, 68,
+   69, 70, 72, 73, 74, 75, 77, 78, 79, 81, 82, 83, 85, 86, 87, 89,
+   90, 92, 93, 95, 96, 98, 99,101,102,104,105,107,109,110,112,114,
+  115,117,119,120,122,124,126,127,129,131,133,135,137,138,140,142,
+  144,146,148,150,152,154,156,158,160,162,164,167,169,171,173,175,
+  177,180,182,184,186,189,191,193,196,198,200,203,205,208,210,213,
+  215,218,220,223,225,228,231,233,236,239,241,244,247,249,252,255 };
+
 // Send the pixels to form the specified char, not including intercase space
 // skip is the number of pixels to skip at the begining to enable sub-char smooth scrolling
 
 // TODO: Subtract the offset from the char before starting the send sequence to save time if nessisary
 // TODO: Also could pad the begining of the font table to aovid the offset subtraction at the cost of 20*8 bytes of progmem
 
-static inline void __attribute__ ((always_inline)) sendChar( uint8_t c ,  uint8_t skip , uint8_t r,  uint8_t g,  uint8_t b , uint8_t onBits) {
+static inline void sendChar( uint8_t c ,  uint8_t skip , uint8_t r,  uint8_t g,  uint8_t b , uint8_t onBits) {
 
   const uint8_t *charbase = Font5x7 + (( c -' ')*5) ; 
 
@@ -368,18 +287,12 @@ static inline void __attribute__ ((always_inline)) sendChar( uint8_t c ,  uint8_
 static inline void sendString( const char *s , uint8_t skip ,  uint8_t r,  uint8_t g,  uint8_t b , uint8_t onBits ) {
 
   unsigned int l=PIXELS/(CHAR_WIDTH+INTERCHAR_SPACE); 
-  
+
   sendChar( *s , skip ,  r , g , b, onBits );   // First char is special case becuase it can be stepped for smooth scrolling
+  
 
   while ( *(++s) && l--) {
 
-///uint8_t interchar = INTERCHAR_SPACE;
-
-/* TODO: Variable interchar spacing
-   while (interchar--) {
-      sendRowRGB( 0 , r , g , b, onBits );   // Inter char spacing
-   }
-*/
     sendChar( *s , 0,  r , g , b, onBits );
 
   }
@@ -432,33 +345,64 @@ void show() {
 void setup() {
     
   ledsetup();  
+  DDRB=0x01;
   delay(100);
   
 }
 
 
 void loop() {
-/*
-  PORTD |= 0x01;
-  PORTD &= ~0x01;
-  sendRowAsm(  0 , 0 , 0xfe );
-  sendRowAsm(  0xfe , 0xff , 0xfe );
-  sendRowAsm(  0 , 0 , 0xfe );
-  delay(100);
-
- return;
-
- */
 
   const uint8_t onBits = PIXEL_BITMASK;    // Bits that we don't control in the PORT that are already ON, so we can preserve thier state
 
   // TODO: Actually sample the state of the pullup on unused pins and OR it into the mask so we maintain the state.
   // Must do AFTER the cli(). 
   // TODO: Add offBits also to maintain the pullup state of unused pins. 
+
+
+  // Start sequence.....
+
+  const char *countdownstr = "COUNT ";
+
+  uint8_t count=6; 
+  
+  while (count>0) {
+    
+    count--;
+    
+    uint8_t fade=200; 
+
+    uint8_t digit = count + '0';
+    
+    while (fade>0) {
+
+            fade--;
+
+            // Gamma correct the brightness
+            uint8_t brightness = 0x80;// pgm_read_byte(&gamma[fade]);
+
+            uint8_t digit2 = (fade/20)+'0';
+            uint8_t digit3 = ((fade % 20) /2 ) + '0';
+            
+            cli();
+            sendString( countdownstr , 0 , 0x80, 0x80 , 0x80 , onBits );      
+            sendChar( digit , 0 , brightness , 0 , 0 , onBits );
+            sendChar( '.' , 0 , brightness , 0 , 0 , onBits );
+            sendChar( digit2 , 0 , brightness , 0 , 0 , onBits );
+            sendChar( digit3 , 0 , brightness , 0 , 0 , onBits );
+            sei();
+            delay(5);
+
+    }
+
+
+    
+  }
+  
   
   const char *m = 
-"                                                                                                                                      "        
-"’Twas brillig, and the slithy toves "
+          
+"Twas brillig, and the slithy toves "
       "Did gyre and gimble in the wabe: "
 "All mimsy were the borogoves, "
       "And the mome raths outgrabe. "
@@ -469,7 +413,7 @@ void loop() {
       "The frumious Bandersnatch! "
 
 "He took his vorpal sword in hand; "
-      "Long time the manxome foe he sought— "
+      "Long time the manxome foe he sought- "
 "So rested he by the Tumtum tree "
       "And stood awhile in thought. "
 
@@ -488,49 +432,75 @@ void loop() {
 "O frabjous day! Callooh! Callay! "
       "He chortled in his joy. "
 
-"’Twas brillig, and the slithy toves "
+"Twas brillig, and the slithy toves "
       "Did gyre and gimble in the wabe: "
 "All mimsy were the borogoves, "
       "And the mome raths outgrabe."  
 
       ;
 
-  int colorcycle=0;
-
+  uint8_t sector =0;
+  uint8_t step = 0;
+  
   while (*m) {      
 
-      colorcycle++;
-
-      if (colorcycle>=256*3) {
-        colorcycle=0;
+      step++;
+      if (step ==0 ) {
+        sector++;
+        if (sector==3) {
+          sector=0;
+          }
       }
-
+      
       uint8_t r,g,b;
+      
+      switch( sector ) {
+        case 0: 
+            r=step;
+            g=~step;
+            b=0;
+            break;
+         case 1:
+            r=~step;
+            g=0;
+            b=step;
+            break;
+         case 2:
+            r=0;
+            g=step;
+            b=~step;
+            break;
+         case 3:
+            r=0;
+            b=step;
+            g=255;
+            break;
+          case 4:
+            r=0;
+            g=~step;
+            b=255;
+            break;
+          case 5:
+            r=0;
+            g=0;
+            b=~step;
+            break;
 
-      if (colorcycle<256) {
-        r=colorcycle;
-        b=255-colorcycle;
-      } else if (colorcycle<512) {
-        g=colorcycle;
-        r=255-colorcycle;
-      } else {
-        b=colorcycle;
-        g=255-colorcycle;
       }
-
-
-    
+          
+          
     for( uint8_t step=0; step<CHAR_WIDTH+INTERCHAR_SPACE  ; step++ ) {   // step though each column of the 1st char for smooth scrolling
-
 
 
       cli();
 
       sendString( m , step ,r, g ,  b , onBits );
-            PORTD|=1; // TODO: For debugging
       
       sei();
+
+      PORTB|=0x01;      
       delay(1);
+      PORTB&=~0x01;
 
     }
 
