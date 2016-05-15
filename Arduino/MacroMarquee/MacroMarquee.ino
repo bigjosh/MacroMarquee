@@ -47,58 +47,6 @@
 // do not turn on unused pins becuae this would enable the pullup. Also, hopefully passing this
 // will cause the compiler to allocate a Register for it and avoid a reload every pass.
 
-// TODO: Can we use delay_cycles here rather than .rep NOPs to save space? 
-// TODO: We could actually compute the next color byte translation while the inital bit phase is bring transmitted to do some pipelining....
-
-
-// This dummy function does nothing but emit the macros
-// If we try to put the macros inside an inlined function, they get emitted each time the function is called
-/// and generate "marco already defined" errors. Arg.
-
-  
-
-static inline void sendBitX8( const uint8_t bitx8 , const uint8_t onBits) {
-              
-    asm volatile (
-    
-
-      "out %[port], %[onBits] \n\t"                // 1st step - send T0H high 
-      
-      ".rept %[T0HCycles] \n\t"         // Execute NOPs to delay exactly the specified number of cycles
-         "nop \n\t"
-      ".endr \n\t"      
-
-      
-      "out %[port], %[bits] \n\t"                             // set the output bits to thier values for T0H-T1H
-      
-      ".rept %[offCycles] \n\t"                               // Execute NOPs to delay exactly the specified number of cycles
-        "nop \n\t"
-      ".endr \n\t"
-            
-      "out %[port],__zero_reg__  \n\t"                // last step - T1L all bits low
-
-      // Don't need an explicit delay here since the overhead that follows will always be long enough
-    
-      ::
-      [port]    "I" (_SFR_IO_ADDR(PIXEL_PORT)),
-      [bits]   "d" (bitx8),
-      [onBits]   "d" (onBits),
-      
-      [T0HCycles]  "I" (NS_TO_CYCLES(T0H) - 2),    // 1-bit width less overhead  for the actual bit setting, note that this delay could be longer and everything would still work
-      
-      [offCycles]   "I" (NS_TO_CYCLES((T1H-T0H)) - 2)     // Minimum interbit delay. Note that we probably don't need this at all since the loop overhead will be enough, but here for correctness
-
-    );
-                                  
-
-    // Note that the inter-bit gap can be as long as you want as long as it doesn't exceed the 5us reset timeout (which is A long time)
-    // Here I have been generous and not tried to squeeze the gap tight but instead erred on the side of lots of extra time.
-    // This has thenice side effect of avoid glitches on very long strings becuase 
-    
-}  
-
-
-
 
 // Send a full 8 bits down all the pins, represening a single color of 1 pixel
 // We walk though the 8 bits in colorbyte one at a time. If the bit is 1 then we send the 8 bits of row out. Otherwise we send 0. 
@@ -106,7 +54,10 @@ static inline void sendBitX8( const uint8_t bitx8 , const uint8_t onBits) {
 
 /// Unforntunately we have to drop to ASM for this so we can interleave the computaions durring the delays, otherwise things get too slow.
 
-static inline void sendRowAsm(  const uint8_t row , const uint8_t colorbyte , const uint8_t onBits ) {  
+
+// NOTE THAT THE ORDER OF THE PARAMETERS IS IMPORTANT! WE DEPEND ON THESE IN SEDNROWRGB!
+
+static inline void sendRow(  const uint8_t row , const uint8_t onBits ,const uint8_t colorbyte  ) {  
               
     asm volatile (
 
@@ -161,55 +112,143 @@ static inline void sendRowAsm(  const uint8_t row , const uint8_t colorbyte , co
 }  
 
 
-// Sends a single color for a single row (1/3 of one pixel per string)
-// The row is the bits for each of the strings. 0=off, 1=on to specified color
-// This could be so much faster in pure ASM...
+// Send one full pixel of color data - 3 bytes per pixel (24 bits in all)
+// This is an ugly hack that resuses the paramaters when calling sendRow. It saves a bunch of PUSH/PULL operations per call.
+// It would be cleaner to do this all in ASM, but I couldn't get inline marcos to work right, and the Arduino IDE won't let me add a .S file as a tab. Arg.
 
-static void sendRowFast( const uint8_t row , const uint8_t colorbyte , const uint8_t onBits ) {
+// Remeber that ws2812b take colors in order G,R,B
 
-  // TODO: Convert to ASM to save that pesky extra LDI load of onBits. 
+// NOTE THAT THE ORDER OF THE PARAMETERS IS IMPORTANT! WE DEPEND ON THESE IN SEDNROW!
 
-  sendBitX8( (colorbyte & 0b10000000 ) ? row : 0 , onBits);
-  sendBitX8( (colorbyte & 0b01000000 ) ? row : 0 , onBits);
-  sendBitX8( (colorbyte & 0b00100000 ) ? row : 0 , onBits);
-  sendBitX8( (colorbyte & 0b00010000 ) ? row : 0 , onBits);
-  sendBitX8( (colorbyte & 0b00001000 ) ? row : 0 , onBits);
-  sendBitX8( (colorbyte & 0b00000100 ) ? row : 0 , onBits);
-  sendBitX8( (colorbyte & 0b00000010 ) ? row : 0 , onBits);
-  sendBitX8( (colorbyte & 0b00000001 ) ? row : 0 , onBits);
-  
-}
+static inline void sendRowRGB( const uint8_t row , const uint8_t onBits , const uint8_t red,  const uint8_t green,  const uint8_t blue  ) {
 
-static void sendRow( const uint8_t row , const uint8_t colorbyte , const uint8_t onBits ) {
+   asm volatile (
 
-  // TODO: Convert to ASM to save that pesky extra LDI load of onBits. 
+      "G_%=: \n\r"  
+      
+      "out %[port], %[onBits] \n\t"                // (1 cycles) - send T0H high (all bits high)
+      
+      "mov r0, %[bitwalker] \n\t"                  // (1 cycles) 
+      "and r0, %[green] \n\t"                      // (1 cycles) - is the current bit in the color byte set?
+      "mov r0, %[row]       \n\t"                  // (1 cycles) - get possible output byte ready (does not update Z)
+      "brne ONG_%= \n\t"                            // (1 cycles) - if zero after the and, then send full zero row
+      "mov r0,r1  \n\r"                            // (1 cycles) - bit in colorbyte was zero, so send all 0's. 
+      "ONG_%=: \n\r"                                //              Note that if we land here becuase of brne, it takes 2 cycles, but it still takes 2 if the brne fell though to the mov
+      
+      // No extra delay here since the above calculation takes 7 cycles, using up the T0H of 350ns (https://www.google.com/webhp?sourceid=chrome-instant&ion=1&espv=2&ie=UTF-8#q=(350ns)%2F(1%2F(16mhz)))
+            
+      "out %[port], r0 \n\t"                       // (cycles 1) - set the output bits to [row] or 0x00 based on the bit in colorbyte. This is phase for T0H-T1H
 
-  uint8_t bit=8;
+      // We get T1H-T0H here, which is 350ns (6 cycles at 16mhz)
 
-  while (bit--) {
+      "ror %[bitwalker] \n\t"                      // (1 cycles) - get ready for next pass. On last pass, the bit will end up in C flag
 
-    if (colorbyte & (1<<bit)) {   // This ends up sending to color value as a bit stream becuase 
-      sendBitX8( row , onBits );           
-    } else {
-      sendBitX8(0 , onBits );
-    }
+      "nop \n\t nop \n\t nop \n\t nop \n\t "
+            
+      "out %[port],__zero_reg__  \n\t"             // (1 cycles) last step - T1L all bits low
+
+      "nop \n\t nop \n\t nop \n\t nop \n\t nop \n\t"
+            
+      "brcc G_%= \n\t"                              // (1 cycles) Exit if carry bit is set as a result of us walking all 8 bits. We assume that the process around us will tak long enough to cover the phase 3 delay
+            
+
+      // -------------------------------------------------------------
+
+
+      "ror %[bitwalker] \n\t"                      // (1 cycles) - get ready for next cycle - moves the 1 in C to the top - and wastes one cycle that would have been used for the branch not taken above
+      
+      "R_%=: \n\r"  
+
+      "out %[port], %[onBits] \n\t"                // (1 cycles) - send T0H high (all bits high)
+      
+      "mov r0, %[bitwalker] \n\t"                  // (1 cycles) 
+      "and r0, %[red] \n\t"                  // (1 cycles) - is the current bit in the color byte set?
+      "mov r0, %[row]       \n\t"                  // (1 cycles) - get possible output byte ready (does not update Z)
+      "brne ONR_%= \n\t"                            // (1 cycles) - if zero after the and, then send full zero row
+      "mov r0,r1  \n\r"                            // (1 cycles) - bit in colorbyte was zero, so send all 0's. 
+      "ONR_%=: \n\r"                                //              Note that if we land here becuase of brne, it takes 2 cycles, but it still takes 2 if the brne fell though to the mov
+      
+      // No extra delay here since the above calculation takes 7 cycles, using up the T0H of 350ns (https://www.google.com/webhp?sourceid=chrome-instant&ion=1&espv=2&ie=UTF-8#q=(350ns)%2F(1%2F(16mhz)))
+            
+      "out %[port], r0 \n\t"                       // (cycles 1) - set the output bits to [row] or 0x00 based on the bit in colorbyte. This is phase for T0H-T1H
+
+      // We get T1H-T0H here, which is 350ns (6 cycles at 16mhz)
+
+      "ror %[bitwalker] \n\t"                      // (1 cycles) - get ready for next pass. On last pass, the bit will end up in C flag
+
+      "nop \n\t nop \n\t nop \n\t nop \n\t "
+            
+      "out %[port],__zero_reg__  \n\t"             // (1 cycles) last step - T1L all bits low
+
+      "nop \n\t nop \n\t nop \n\t nop \n\t nop \n\t"
+      
+      "brcc R_%= \n\t"                              // (1 cycles) Exit if carry bit is set as a result of us walking all 8 bits. We assume that the process around us will tak long enough to cover the phase 3 delay
+                        
+
+      // -------------------------------------------------------------
+      
+      "ror %[bitwalker] \n\t"                      // (1 cycles) - get ready for next cycle - moves the 1 in C to the top - and wastes one cycle that would have been used for the branch not taken above
+      
+      "B_%=: \n\r"  
+      
+      "out %[port], %[onBits] \n\t"                // (1 cycles) - send T0H high (all bits high)
+      
+      "mov r0, %[bitwalker] \n\t"                  // (1 cycles) 
+      "and r0, %[blue] \n\t"                  // (1 cycles) - is the current bit in the color byte set?
+      "mov r0, %[row]       \n\t"                  // (1 cycles) - get possible output byte ready (does not update Z)
+      "brne ONB_%= \n\t"                            // (1 cycles) - if zero after the and, then send full zero row
+      "mov r0,r1  \n\r"                            // (1 cycles) - bit in colorbyte was zero, so send all 0's. 
+      "ONB_%=: \n\r"                                //              Note that if we land here becuase of brne, it takes 2 cycles, but it still takes 2 if the brne fell though to the mov
+      
+      // No extra delay here since the above calculation takes 7 cycles, using up the T0H of 350ns (https://www.google.com/webhp?sourceid=chrome-instant&ion=1&espv=2&ie=UTF-8#q=(350ns)%2F(1%2F(16mhz)))
+            
+      "out %[port], r0 \n\t"                       // (cycles 1) - set the output bits to [row] or 0x00 based on the bit in colorbyte. This is phase for T0H-T1H
+
+      // We get T1H-T0H here, which is 350ns (6 cycles at 16mhz)
+
+      "ror %[bitwalker] \n\t"                      // (1 cycles) - get ready for next pass. On last pass, the bit will end up in C flag
+
+      "nop \n\t nop \n\t nop \n\t nop \n\t "
+            
+      "out %[port],__zero_reg__  \n\t"             // (1 cycles) last step - T1L all bits low
+
+      // We do it a little differently on the last byte. We don't waste any time on the last bit to give ourselves the maximum ammmount of time to process between pixels
+      
+      "brcs DONE_%= \n\t"                              // (1 cycles) Exit if carry bit is set as a result of us walking all 8 bits. We assume that the process around us will tak long enough to cover the phase 3 delay
+      
+      "nop \n\t nop \n\t nop \n\t nop \n\t"       // We need one less nop here becuase the jmp takes 2 cycles
+            
+      "jmp B_%= \n\t"                              // (3 cycles) 
+            
+      // Note that we do not normalize the bitwalker here - it will get reloaded on the next call. One wasted cycle per pixel column not so bad.
+
+      "DONE_%=: \n\r"  
+
+
+      // Don't need an explicit delay here since the overhead that follows will always be long enough
     
-  }
+      ::
+      [port]    "I" (_SFR_IO_ADDR(PIXEL_PORT)),
+      [row]   "d" (row),
+      [onBits]   "d" (onBits),
+      [red]   "d" (red),          // Phase 2 of the signal where the actual data bits show up.                
+      [green]   "d" (green),      // Phase 2 of the signal where the actual data bits show up.                
+      [blue]   "d" (blue),        // Phase 2 of the signal where the actual data bits show up.                
+      [bitwalker] "r" (0x80)      // Alocate a register to hold a bit that we will walk down though the color byte
+
+    );
+                                  
+
+    // Note that the inter-bit gap can be as long as you want as long as it doesn't exceed the 5us reset timeout (which is A long time)
+    // Here I have been generous and not tried to squeeze the gap tight but instead erred on the side of lots of extra time.
+    // This has thenice side effect of avoid glitches on very long strings becuase 
 
 }
 
-
-
-
-// This still wastes about 1us per byte becuase of the overhead of setting up registers and calling, but it is pretty darn fast.
-
-static inline void __attribute__ ((always_inline)) sendRowRGB( uint8_t row ,  uint8_t r,  uint8_t g,  uint8_t b , uint8_t onBits ) {
-
-  sendRowAsm( row , g , onBits);    // WS2812 takes colors in GRB order
-  sendRowAsm( row , r , onBits);    // WS2812 takes colors in GRB order
-  sendRowAsm( row , b , onBits);    // WS2812 takes colors in GRB order
+//  sendRowAsm( row , g , onBits);    // WS2812 takes colors in GRB order
+//  sendRowAsm( row , r , onBits);    // WS2812 takes colors in GRB order
+//  sendRowAsm( row , b , onBits);    // WS2812 takes colors in GRB order
   
-}
 
 // This nice 5x7 font from here...
 // http://sunge.awardspace.com/glcd-sd/node4.html
@@ -335,7 +374,7 @@ const uint8_t Font5x7[] PROGMEM = {
 // TODO: Subtract the offset from the char before starting the send sequence to save time if nessisary
 // TODO: Also could pad the begining of the font table to aovid the offset subtraction at the cost of 20*8 bytes of progmem
 
-static inline void __attribute__ ((always_inline)) sendChar( uint8_t c ,  uint8_t skip , uint8_t r,  uint8_t g,  uint8_t b , uint8_t onBits) {
+static inline void sendCharWithSkip( const uint8_t c ,  uint8_t skip , const uint8_t r,  const uint8_t g,  const uint8_t b , const uint8_t onBits) {
 
   const uint8_t *charbase = Font5x7 + (( c -' ')*5) ; 
 
@@ -347,24 +386,42 @@ static inline void __attribute__ ((always_inline)) sendChar( uint8_t c ,  uint8_
   }
   
   while (col--) {
-      sendRowRGB( pgm_read_byte_near( charbase++ ) , r , g , b, onBits );
+      sendRowRGB( pgm_read_byte_near( charbase++ ) , onBits , r , g , b );
   }    
 
   // TODO: FLexible interchar spacing
 
-  sendRowRGB( 0 , r , g , b, onBits );    // Interchar space
+  sendRowRGB( 0 , onBits , r , g , b );    // Interchar space
   
 }
 
+/*
+
+static inline void sendChar( const uint8_t c ,  const uint8_t r,  const uint8_t g,  const uint8_t b , const uint8_t onBits) {
+
+  const uint8_t *charbase = Font5x7 + (( c -' ')*5) ; 
+
+  uint8_t col=CHAR_WIDTH;   
+  while (col--) {
+      sendRowRGB( pgm_read_byte_near( charbase++ ) , onBits , r , g , b );
+  }    
+
+  // TODO: FLexible interchar spacing
+
+  sendRowRGB( 0 , onBits , r , g , b );    // Interchar space
+  
+}
+
+*/
 
 // Show the passed string. The last letter of the string will be in the rightmost pixels of the display.
 // Skip is how many cols of the 1st char to skip for smooth scrolling
 
-static inline void sendString( const char *s , uint8_t skip ,  uint8_t r,  uint8_t g,  uint8_t b , uint8_t onBits ) {
+static inline void sendString( const char *s , uint8_t skip ,  const uint8_t r,  const uint8_t g,  const uint8_t b , const uint8_t onBits ) {
 
   unsigned int l=PIXELS/(CHAR_WIDTH+INTERCHAR_SPACE); 
   
-  sendChar( *s , skip ,  r , g , b, onBits );   // First char is special case becuase it can be stepped for smooth scrolling
+  sendCharWithSkip( *s , skip ,  r , g , b, onBits );   // First char is special case becuase it can be stepped for smooth scrolling
 
   while ( *(++s) && l--) {
 
@@ -377,7 +434,7 @@ static inline void sendString( const char *s , uint8_t skip ,  uint8_t r,  uint8
 */
 
     PORTB |= 0x01;    // TODO: Benchmark only
-    sendChar( *s , 0,  r , g , b, onBits );
+    sendCharWithSkip( *s , 0 , r , g , b, onBits );
     PORTB &= ~0x01;   // TODO: Benchmark only     
 
   }
@@ -436,15 +493,19 @@ void setup() {
 
 
 void loop() {
-/*
-  sendRowAsm(  0 , 0 , 0xfe );
-  sendRowAsm(  0xfe , 0xff , 0xfe );
-  sendRowAsm(  0 , 0 , 0xfe );
+
+/*  
+  DDRB = 0x01;
+  PORTB |= 0x01;    // TODO: Benchmark only
+  sendRowRGB( 0b00000010 , 0xfe , 0b10000000, 0b10000000, 0x00 );
+  sendRowRGB( 0b10101010 , 0xfe , 0x00 , 0xff, 0x00 );
+  PORTB &= ~0x01;    // TODO: Benchmark only
+  
   delay(100);
 
  return;
 
- */
+*/
 
   const uint8_t onBits = PIXEL_BITMASK;    // Bits that we don't control in the PORT that are already ON, so we can preserve thier state
 
@@ -452,42 +513,42 @@ void loop() {
   // Must do AFTER the cli(). 
   // TODO: Add offBits also to maintain the pullup state of unused pins. 
   
-  const char *m = 
-"                                                                                                                                      "        
-"’Twas brillig, and the slithy toves "
-      "Did gyre and gimble in the wabe: "
-"All mimsy were the borogoves, "
-      "And the mome raths outgrabe. "
-
-"Beware the Jabberwock, my son! "
-      "The jaws that bite, the claws that catch! "
-"Beware the Jubjub bird, and shun "      
-      "The frumious Bandersnatch! "
-
-"He took his vorpal sword in hand; "
-      "Long time the manxome foe he sought— "
-"So rested he by the Tumtum tree "
-      "And stood awhile in thought. "
-
-"And, as in uffish thought he stood, "
-      "The Jabberwock, with eyes of flame, "
-"Came whiffling through the tulgey wood, "      
-      "And burbled as it came! "
-
-"One, two! One, two! And through and through "
-      "The vorpal blade went snicker-snack! "
-"He left it dead, and with its head "
-      "He went galumphing back. "
-
-"And hast thou slain the Jabberwock? "
-      "Come to my arms, my beamish boy! "
-"O frabjous day! Callooh! Callay! "
-      "He chortled in his joy. "
-
-"’Twas brillig, and the slithy toves "
-      "Did gyre and gimble in the wabe: "
-"All mimsy were the borogoves, "
-      "And the mome raths outgrabe."  
+  const char *m =   
+          
+      "Twas brillig, and the slithy toves "
+            "Did gyre and gimble in the wabe: "
+      "All mimsy were the borogoves, "
+            "And the mome raths outgrabe. "
+    
+      "Beware the Jabberwock, my son! "
+            "The jaws that bite, the claws that catch! "
+      "Beware the Jubjub bird, and shun "      
+            "The frumious Bandersnatch! "
+      
+      "He took his vorpal sword in hand; "
+            "Long time the manxome foe he sought— "
+      "So rested he by the Tumtum tree "
+            "And stood awhile in thought. "
+      
+      "And, as in uffish thought he stood, "
+            "The Jabberwock, with eyes of flame, "
+      "Came whiffling through the tulgey wood, "      
+            "And burbled as it came! "
+      
+      "One, two! One, two! And through and through "
+            "The vorpal blade went snicker-snack! "
+      "He left it dead, and with its head "
+            "He went galumphing back. "
+      
+      "And hast thou slain the Jabberwock? "
+            "Come to my arms, my beamish boy! "
+      "O frabjous day! Callooh! Callay! "
+            "He chortled in his joy. "
+      
+      "Twas brillig, and the slithy toves "
+            "Did gyre and gimble in the wabe: "
+      "All mimsy were the borogoves, "
+            "And the mome raths outgrabe."  
 
       ;
 
