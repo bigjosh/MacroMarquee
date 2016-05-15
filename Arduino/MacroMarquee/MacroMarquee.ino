@@ -18,6 +18,9 @@
                                   // Note that these will still get 0 written to them when we send pixels
                                   // TODO: If we have time, we could even add a variable that will and/or into the bits before writing to the port to support any combination of bits/values
 
+static const uint8_t onBits=0xfe;        // Bit pattern to write to port to turn on all pins connected to LED strips. 
+                                  
+
 // These are the timing constraints taken mostly from the WS2812 datasheets 
 // These are chosen to be conservative and avoid problems rather than for maximum throughput 
 
@@ -351,53 +354,54 @@ void setup() {
 }
 
 
-void loop() {
-
-  const uint8_t onBits = PIXEL_BITMASK;    // Bits that we don't control in the PORT that are already ON, so we can preserve thier state
-
-  // TODO: Actually sample the state of the pullup on unused pins and OR it into the mask so we maintain the state.
-  // Must do AFTER the cli(). 
-  // TODO: Add offBits also to maintain the pullup state of unused pins. 
+void showcountdown() {
 
 
   // Start sequence.....
 
   const char *countdownstr = "COUNT ";
 
-  uint8_t count=6; 
-  
-  while (count>0) {
-    
-    count--;
-    
-    uint8_t fade=200; 
+  uint8_t count0='6'; 
+  uint8_t count1='0';
+  uint8_t count2='0';
 
-    uint8_t digit = count + '0';
-    
-    while (fade>0) {
 
-            fade--;
+  while (count0> ('0'-1)) {
 
-            // Gamma correct the brightness
-            uint8_t brightness = 0x80;// pgm_read_byte(&gamma[fade]);
+    count2--;    
 
-            uint8_t digit2 = (fade/20)+'0';
-            uint8_t digit3 = ((fade % 20) /2 ) + '0';
-            
-            cli();
-            sendString( countdownstr , 0 , 0x80, 0x80 , 0x80 , onBits );      
-            sendChar( digit , 0 , brightness , 0 , 0 , onBits );
-            sendChar( '.' , 0 , brightness , 0 , 0 , onBits );
-            sendChar( digit2 , 0 , brightness , 0 , 0 , onBits );
-            sendChar( digit3 , 0 , brightness , 0 , 0 , onBits );
-            sei();
-            delay(5);
-
+    if (count2== ('0'-1) ) {
+      count2='9';
+      count1--;
     }
 
+    if (count1== ('0'-1) ) {
+      count1='9';
+      count0--;
+    }
 
-    
+    cli();
+    sendString( countdownstr , 0 , 0x80, 0x80 , 0x80 , onBits );      
+    sendChar( count0 , 0 , 0x80, 0 , 0 , onBits );
+    sendChar( (count1>'5') ? '.':' ' , 0 , 0x80, 0 , 0 , onBits );
+    sendChar( count1 , 0 , 0x80, 0 , 0 , onBits );
+    sendChar( count2 , 0 , 0x80, 0 , 0 , onBits );
+    sei();
+    delay(5);
   }
+  
+}
+
+
+void loop() {
+
+  showcountdown();
+
+
+  // TODO: Actually sample the state of the pullup on unused pins and OR it into the mask so we maintain the state.
+  // Must do AFTER the cli(). 
+  // TODO: Add offBits also to maintain the pullup state of unused pins. 
+
   
   
   const char *m = 
