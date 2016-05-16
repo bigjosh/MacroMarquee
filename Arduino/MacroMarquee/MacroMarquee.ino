@@ -559,37 +559,31 @@ void showstarfield() {
 
 }
 
-void showallyourbase() {
-  const unsigned char enemy1c[] = {
-    0b00001110,
-    0b00101111,
-    0b01111111,
-    0b01011011,
-    0b00011011,
-    0b00101111,
-    0b00101111,
-    0b00011011,
-    0b01011011,
-    0b01111111,
-    0b00101111,
-    0b00001110,
-  };
-  
-  const unsigned char enemy1o[] = {
-    0b01001110,
-    0b01001111,
-    0b00101111,
-    0b00111011,
-    0b00011011,
-    0b00101111,
-    0b00101111,
-    0b00011011,
-    0b00111011,
-    0b00101111,
-    0b01001111,
-    0b01001110,
-  };
+#define ENIMIES_WIDTH 8
 
+const uint8_t enimies[] PROGMEM = {
+
+  0x70,0xf4,0xfe,0xda,0xd8,0xf4,0xf4,0xd8,0xda,0xfe,0xf4,0x70, // Enimie 1 - open
+  0x72,0xf2,0xf4,0xdc,0xd8,0xf4,0xf4,0xd8,0xdc,0xf4,0xf2,0x72, // Enimie 1 - close
+  0x1c,0x30,0x7c,0xda,0x7a,0x78,0x7a,0xda,0x7c,0x30,0x1c,0x00, // Enimie 2 - open
+  0xf0,0x3a,0x7c,0xd8,0x78,0x78,0x78,0xd8,0x7c,0x3a,0xf0,0x00, // Enimie 2 - closed
+
+};
+
+static inline void sendIcon( const uint8_t *fontbase , uint8_t which,  uint8_t width , uint8_t r , uint8_t g , uint8_t b ) {
+
+  const uint8_t *charbase = fontbase + (which*width);
+  
+  while (width--) {
+
+      sendRowRGB(  pgm_read_byte_near( charbase++ ) , r , g , b , onBits );
+   
+  }
+
+}
+
+void showallyourbase() {
+  
   const char *allyourbase = "3456\" ALL YOUR BASE ARE BELONG TO US" ;
 
 
@@ -600,6 +594,8 @@ void showallyourbase() {
   for(unsigned int slide=10000; slide ; slide-=10 ) {
       altbright = (slide & 0xff);
       cli();      
+      sendIcon( enimies , 0 , 12 , 0x20, 0x80, 0x00 ); 
+      sendRowRGB( 0 , 0 , 0 , 0 , onBits );
       sendStringAlt( allyourbase , onBits);
       sei();
       show();
