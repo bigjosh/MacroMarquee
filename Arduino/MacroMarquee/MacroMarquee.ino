@@ -110,12 +110,23 @@ static inline void sendBitx8(  const uint8_t row , const uint8_t colorbyte , con
     
 }  
 
-static inline void sendRowRGB( uint8_t row ,  uint8_t r,  uint8_t g,  uint8_t b , uint8_t onBits ) {
+static inline void sendRowRGB( uint8_t row ,  uint8_t r,  uint8_t g,  uint8_t b ) {
 
   sendBitx8( row , g , onBits);    // WS2812 takes colors in GRB order
   sendBitx8( row , r , onBits);    // WS2812 takes colors in GRB order
   sendBitx8( row , b , onBits);    // WS2812 takes colors in GRB order
   
+}
+
+static inline void clear() {
+
+  cli();
+  for( unsigned int i=0; i< PIXELS; i++ ) {
+
+    sendRowRGB( 0 , 0 , 0 , 0 );
+  }
+  sei();
+  show(); 
 }
 
 // This nice 5x7 font from here...
@@ -236,37 +247,13 @@ const uint8_t Font5x7[] PROGMEM = {
 0x10,0x38,0x54,0x10,0x10,// 
 };
 
-
-// https://learn.adafruit.com/led-tricks-gamma-correction/the-quick-fix
-
-const uint8_t PROGMEM gamma[] = {
-    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  1,  1,  1,  1,
-    1,  1,  1,  1,  1,  1,  1,  1,  1,  2,  2,  2,  2,  2,  2,  2,
-    2,  3,  3,  3,  3,  3,  3,  3,  4,  4,  4,  4,  4,  5,  5,  5,
-    5,  6,  6,  6,  6,  7,  7,  7,  7,  8,  8,  8,  9,  9,  9, 10,
-   10, 10, 11, 11, 11, 12, 12, 13, 13, 13, 14, 14, 15, 15, 16, 16,
-   17, 17, 18, 18, 19, 19, 20, 20, 21, 21, 22, 22, 23, 24, 24, 25,
-   25, 26, 27, 27, 28, 29, 29, 30, 31, 32, 32, 33, 34, 35, 35, 36,
-   37, 38, 39, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 50,
-   51, 52, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 66, 67, 68,
-   69, 70, 72, 73, 74, 75, 77, 78, 79, 81, 82, 83, 85, 86, 87, 89,
-   90, 92, 93, 95, 96, 98, 99,101,102,104,105,107,109,110,112,114,
-  115,117,119,120,122,124,126,127,129,131,133,135,137,138,140,142,
-  144,146,148,150,152,154,156,158,160,162,164,167,169,171,173,175,
-  177,180,182,184,186,189,191,193,196,198,200,203,205,208,210,213,
-  215,218,220,223,225,228,231,233,236,239,241,244,247,249,252,255 };
-
-// Map 0-255 visual brightness to 0-255 LED brightness 
-#define GAMMA(x) (pgm_read_byte(&gamma[x])
-
 // Send the pixels to form the specified char, not including intercase space
 // skip is the number of pixels to skip at the begining to enable sub-char smooth scrolling
 
 // TODO: Subtract the offset from the char before starting the send sequence to save time if nessisary
 // TODO: Also could pad the begining of the font table to aovid the offset subtraction at the cost of 20*8 bytes of progmem
 
-static inline void sendChar( uint8_t c ,  uint8_t skip , uint8_t r,  uint8_t g,  uint8_t b , uint8_t onBits) {
+static inline void sendChar( uint8_t c ,  uint8_t skip , uint8_t r,  uint8_t g,  uint8_t b ) {
 
   const uint8_t *charbase = Font5x7 + (( c -' ')* FONT_WIDTH ) ; 
 
@@ -278,12 +265,12 @@ static inline void sendChar( uint8_t c ,  uint8_t skip , uint8_t r,  uint8_t g, 
   }
   
   while (col--) {
-      sendRowRGB( pgm_read_byte_near( charbase++ ) , r , g , b, onBits );
+      sendRowRGB( pgm_read_byte_near( charbase++ ) , r , g , b );
   }    
 
   // TODO: FLexible interchar spacing
 
-  sendRowRGB( 0 , r , g , b, onBits );    // Interchar space
+  sendRowRGB( 0 , r , g , b );    // Interchar space
   
 }
 
@@ -291,16 +278,16 @@ static inline void sendChar( uint8_t c ,  uint8_t skip , uint8_t r,  uint8_t g, 
 // Show the passed string. The last letter of the string will be in the rightmost pixels of the display.
 // Skip is how many cols of the 1st char to skip for smooth scrolling
 
-static inline void sendString( const char *s , uint8_t skip ,  uint8_t r,  uint8_t g,  uint8_t b , uint8_t onBits ) {
+static inline void sendString( const char *s , uint8_t skip ,  uint8_t r,  uint8_t g,  uint8_t b ) {
 
   unsigned int l=PIXELS/(FONT_WIDTH+INTERCHAR_SPACE); 
 
-  sendChar( *s , skip ,  r , g , b, onBits );   // First char is special case becuase it can be stepped for smooth scrolling
+  sendChar( *s , skip ,  r , g , b );   // First char is special case becuase it can be stepped for smooth scrolling
   
 
   while ( *(++s) && l--) {
 
-    sendChar( *s , 0,  r , g , b, onBits );
+    sendChar( *s , 0,  r , g , b );
 
   }
 }
@@ -409,7 +396,7 @@ const uint8_t altfont[] PROGMEM = {
 
 static uint8_t altbright =0; 
 
-static inline void sendCharAlt( uint8_t c ,  uint8_t onBits) {
+static inline void sendCharAlt( uint8_t c ) {
 
   const uint8_t *charbase = altfont + (( c -' ')* ALTFONT_WIDTH) ; 
 
@@ -417,12 +404,12 @@ static inline void sendCharAlt( uint8_t c ,  uint8_t onBits) {
   
   while (col--) {
 
-      sendRowRGB(  pgm_read_byte_near( charbase++ ) , altbright , 0 , 0x80 , onBits );
+      sendRowRGB(  pgm_read_byte_near( charbase++ ) , altbright , 0 , 0x80  );
    
       altbright+=10;
   }
 
-  sendRowRGB( 0 ,0, 0 , 0, onBits );
+  sendRowRGB( 0 ,0, 0 , 0 );
   altbright+=10;
 
 }
@@ -430,15 +417,21 @@ static inline void sendCharAlt( uint8_t c ,  uint8_t onBits) {
 // Show the passed string. The last letter of the string will be in the rightmost pixels of the display.
 // Skip is how many cols of the 1st char to skip for smooth scrolling
 
-static inline void sendStringAlt( const char *s , uint8_t onBits ) {
+static inline void sendStringAlt( const char *s  ) {
 
   unsigned int l=PIXELS/(ALTFONT_WIDTH+INTERCHAR_SPACE); 
 
-  sendCharAlt( *s , onBits );   // First char is special case becuase it can be stepped for smooth scrolling
+  sendCharAlt( *s  );   // First char is special case becuase it can be stepped for smooth scrolling
   
-  while ( *(++s) && l--) {
+  while ( l--) {
 
-    sendCharAlt( *s , onBits );
+    char c;  
+
+    c =   *s++;
+
+    if (!c) break;
+    
+    sendCharAlt( c  );
 
   }
 }
@@ -497,13 +490,37 @@ void setup() {
 }
 
 
+
+// https://learn.adafruit.com/led-tricks-gamma-correction/the-quick-fix
+
+const uint8_t PROGMEM gamma[] = {
+    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  1,  1,  1,  1,
+    1,  1,  1,  1,  1,  1,  1,  1,  1,  2,  2,  2,  2,  2,  2,  2,
+    2,  3,  3,  3,  3,  3,  3,  3,  4,  4,  4,  4,  4,  5,  5,  5,
+    5,  6,  6,  6,  6,  7,  7,  7,  7,  8,  8,  8,  9,  9,  9, 10,
+   10, 10, 11, 11, 11, 12, 12, 13, 13, 13, 14, 14, 15, 15, 16, 16,
+   17, 17, 18, 18, 19, 19, 20, 20, 21, 21, 22, 22, 23, 24, 24, 25,
+   25, 26, 27, 27, 28, 29, 29, 30, 31, 32, 32, 33, 34, 35, 35, 36,
+   37, 38, 39, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 50,
+   51, 52, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 66, 67, 68,
+   69, 70, 72, 73, 74, 75, 77, 78, 79, 81, 82, 83, 85, 86, 87, 89,
+   90, 92, 93, 95, 96, 98, 99,101,102,104,105,107,109,110,112,114,
+  115,117,119,120,122,124,126,127,129,131,133,135,137,138,140,142,
+  144,146,148,150,152,154,156,158,160,162,164,167,169,171,173,175,
+  177,180,182,184,186,189,191,193,196,198,200,203,205,208,210,213,
+  215,218,220,223,225,228,231,233,236,239,241,244,247,249,252,255 };
+
+// Map 0-255 visual brightness to 0-255 LED brightness 
+#define GAMMA(x) (pgm_read_byte(&gamma[x])
+
+
 void showcountdown() {
 
   // Start sequence.....
 
-  const char *countdownstr = "COUNT ";
+  const char *countdownstr = "      COUNT ";
 
-  unsigned int indent = PIXELS - (strlen( countdownstr ) /2);
 
   unsigned int count = 600; 
 
@@ -518,13 +535,13 @@ void showcountdown() {
     uint8_t brightness = GAMMA( (count % 100) * 256 / 100) );
 
     cli();
-    sendString( countdownstr , 0 , brightness , brightness , brightness , onBits );      
-    sendChar( digit1 +'0' , 0 , 0x80, 0 , 0 , onBits );
-    sendChar( (digit2>'5') ? '.':' ' , 0 , 0x80, 0 , 0 , onBits );
-    sendChar( digit2+'0' , 0 , 0x80, 0 , 0 , onBits );
-    sendChar( digit3+'0' , 0 , 0x80, 0 , 0 , onBits );
+    sendString( countdownstr , 0 , brightness , brightness , brightness );      
+    sendChar( digit1 +'0' , 0 , 0x80, 0 , 0 );
+    sendChar( (digit2>'5') ? '.':' ' , 0 , 0x80, 0 , 0  );
+    sendChar( digit2+'0' , 0 , 0x80, 0 , 0  );
+    sendChar( digit3+'0' , 0 , 0x80, 0 , 0 );
     sei();
-    delay(5);
+    show();
   }
   
 }
@@ -532,34 +549,79 @@ void showcountdown() {
 
 void showstarfield() {
 
-  for(unsigned int i=0; i<5000;i++) {
+  const uint8_t field = 40;       // Good size for a field, must be less than 256 so counters fit in a byte
+ 
+  uint8_t sectors = (PIXELS / field);      // Repeating sectors makes for more stars and faster update
 
-    unsigned int x = random(PIXELS);
-    uint8_t y = random(7);
-    uint8_t bitmask = (2<<y) * 2;
+  for(unsigned int i=0; i<100;i++) {
+
+    unsigned int r = random( field * 8);   // Random slow, so grab one big number and we will break it down. 
+    
+
+    uint8_t x = r /8; 
+    uint8_t y = r & 0x07;                // We use 7 rows
+    uint8_t bitmask = (2<<y);           // Start at bit #1 since we enver use the bottom bit
 
     cli();    
-    unsigned int l=x; 
-    while (l--) {
-        sendRowRGB( 0 , 0x80, 0x80, 0x80, onBits);
+
+    for( uint8_t s=sectors+1;s;s--) {   // +1 so we dfingately run off the past of the screen
+      
+      uint8_t l=x; 
+    
+      while (l--) {
+           sendRowRGB( 0 , 0x00, 0x00, 0x00);          
+      }
+        
+      sendRowRGB( bitmask , 0x40, 0x40, 0xff);  // Starlight blue
+
+      l = field-x;
+      
+      while (l--) {
+           sendRowRGB( 0 , 0x00, 0x00, 0x00);          
+      }      
+        
     }      
 
-    sendRowRGB( bitmask , 0x80, 0x80, 0x80, onBits);
-/*
-    l=PIXELS-x;
-    while (l--) {
-        sendRowRGB( 0 , 0x80, 0x80, 0x80, onBits);
-    }      
-*/
     sei();
 
-    show();
+   // show(); // Not needed - random is alwasy slow enough to trigger a reset
        
   }
 
 }
 
-#define ENIMIES_WIDTH 8
+static inline void sendIcon( const uint8_t *fontbase , uint8_t which, int8_t shift , uint8_t width , uint8_t r , uint8_t g , uint8_t b ) {
+
+  const uint8_t *charbase = fontbase + (which*width);
+
+  if (shift <0) {
+
+        uint8_t shiftabs = -1 * shift;
+  
+        while (width--) {
+
+          uint8_t row = pgm_read_byte_near( charbase++ );
+    
+          sendRowRGB(  row << shiftabs , r , g , b );
+     
+    }
+
+  } else {
+
+
+    
+    while (width--) {
+  
+        sendRowRGB(  (pgm_read_byte_near( charbase++ ) >> shift) & onBits , r , g , b );
+     
+    }
+
+  }
+
+}
+
+
+#define ENIMIES_WIDTH 12
 
 const uint8_t enimies[] PROGMEM = {
 
@@ -567,57 +629,108 @@ const uint8_t enimies[] PROGMEM = {
   0x72,0xf2,0xf4,0xdc,0xd8,0xf4,0xf4,0xd8,0xdc,0xf4,0xf2,0x72, // Enimie 1 - close
   0x1c,0x30,0x7c,0xda,0x7a,0x78,0x7a,0xda,0x7c,0x30,0x1c,0x00, // Enimie 2 - open
   0xf0,0x3a,0x7c,0xd8,0x78,0x78,0x78,0xd8,0x7c,0x3a,0xf0,0x00, // Enimie 2 - closed
-
+  0x92,0x54,0x10,0x82,0x44,0x00,0x00,0x44,0x82,0x10,0x54,0x92, // Explosion
 };
 
-static inline void sendIcon( const uint8_t *fontbase , uint8_t which,  uint8_t width , uint8_t r , uint8_t g , uint8_t b ) {
 
-  const uint8_t *charbase = fontbase + (which*width);
-  
-  while (width--) {
+void showinvaderwipe( uint8_t which , const char *pointsStr , uint8_t r , uint8_t g, uint8_t b) {
 
-      sendRowRGB(  pgm_read_byte_near( charbase++ ) , r , g , b , onBits );
-   
+  clear();
+  delay(500);
+
+  for( uint8_t p = 0 ; p<strlen( pointsStr) ; p++ ) {
+
+      cli();
+      //sendStringAlt( "        " );
+      sendIcon( enimies , which , 0 , ENIMIES_WIDTH , r , g , b );
+      for(uint8_t i=0; i< p;i++ ){        
+        sendChar( *(pointsStr+i) , 0 ,r>>2 , g>>2 , b>>2 );     // Dim text slightly
+      }
+      sei();
+      delay(100);
+    
   }
 
+  delay(1500);
+
+  
 }
+
+void showinvaders() {
+  
+  showinvaderwipe(   3 ,  " = 20 POINTS" , 0x80 , 0x80 ,0x80 );
+  showinvaderwipe(   1 ,  " = 10 POINTS" , 0x00 , 0xff ,0x00 );
+
+  uint8_t acount = PIXELS/(ENIMIES_WIDTH+FONT_WIDTH);      // How many aliens do we have room for?  
+
+  for( int8_t row = -4 ; row < 6 ; row++ ) {     // Walk down the rows
+
+    //  Walk them 6 pixels per row 
+
+    // ALternate direction on each row
+
+    uint8_t s,e,d;
+
+    if (row & 1) {
+
+      s=1; e=8; d=1;
+      
+    } else {
+
+      s=7; e=0; d=-1;
+            
+    }
+
+    
+    for( char p = s ; p!=e ; p +=d ) {
+   
+        // Now slowly move aliens
+  
+        // work our way though the alines moving each one to the left
+        
+      
+          cli();
+    
+          // Start with margin
+
+          uint8_t margin = p ;
+
+          while (margin--) {
+            sendRowRGB( 0 , 0x00 , 0x00 , 0x00 );
+          }
+
+          for( uint8_t l=0; l<acount ; l++ ) {
+
+            sendIcon( enimies , p&1 , row, ENIMIES_WIDTH , 0xFF , 0xFF , 0xFF );
+            sendChar( ' ' , 0 , 0x00 , 0x00 , 0x00 ) ; // No over crowding
+            
+          }
+  
+          sei();
+          delay(70);
+            
+        }
+   }
+     // delay(200);            
+  
+}
+
 
 void showallyourbase() {
   
-  const char *allyourbase = "3456\" ALL YOUR BASE ARE BELONG TO US" ;
-
-
-  unsigned int indent = PIXELS - (strlen( allyourbase ) /2);
-  // TODO: Indents
-
+  const char *allyourbase = "  CAT: ALL YOUR BASE ARE BELONG TO US !!!    " ;
 
   for(unsigned int slide=10000; slide ; slide-=10 ) {
       altbright = (slide & 0xff);
       cli();      
-      sendIcon( enimies , 0 , 12 , 0x20, 0x80, 0x00 ); 
-      sendRowRGB( 0 , 0 , 0 , 0 , onBits );
-      sendStringAlt( allyourbase , onBits);
+      sendRowRGB( 0 , 0 , 0 , 0 );
+      sendStringAlt( allyourbase);
       sei();
       show();
-      //delay(1);
   }
   
 }
 
-
-void loop() {
-
-  showcountdown();
-  showallyourbase();
-  showstarfield();
-  return;
-
-
-  // TODO: Actually sample the state of the pullup on unused pins and OR it into the mask so we maintain the state.
-  // Must do AFTER the cli(). 
-  // TODO: Add offBits also to maintain the pullup state of unused pins. 
-
-  
   
   const char *m = 
           
@@ -657,6 +770,10 @@ void loop() {
       "And the mome raths outgrabe."  
 
       ;
+
+
+void showjabber() {
+
 
   uint8_t sector =0;
   uint8_t step = 0;
@@ -713,7 +830,7 @@ void loop() {
 
       cli();
 
-      sendString( m , step ,r, g ,  b , onBits );
+      sendString( m , step ,r, g ,  b );
       
       sei();
 
@@ -727,7 +844,24 @@ void loop() {
 
   }
 
-  delay(1000);
+
+
+}
+
+
+void loop() {
+
+  showcountdown();
+  showallyourbase();
+  showstarfield();
+  showinvaders();
+  showjabber();
+
+  // TODO: Actually sample the state of the pullup on unused pins and OR it into the mask so we maintain the state.
+  // Must do AFTER the cli(). 
+  // TODO: Add offBits also to maintain the pullup state of unused pins. 
+
+  
   return;  
 }
 
