@@ -108,7 +108,15 @@ static inline void sendBitx8(  const uint8_t row , const uint8_t colorbyte , con
     // Here I have been generous and not tried to squeeze the gap tight but instead erred on the side of lots of extra time.
     // This has thenice side effect of avoid glitches on very long strings becuase 
     
-}  
+} 
+
+
+// Just wait long enough without sending any bots to cause the pixels to latch and display the last sent frame
+
+void show() {
+  delayMicroseconds( (RES / 1000UL) + 1);       // Round up since the delay must be _at_least_ this long (too short might not work, too long not a problem)
+}
+
 
 static inline void sendRowRGB( uint8_t row ,  uint8_t r,  uint8_t g,  uint8_t b ) {
 
@@ -278,13 +286,12 @@ static inline void sendChar( uint8_t c ,  uint8_t skip , uint8_t r,  uint8_t g, 
 // Show the passed string. The last letter of the string will be in the rightmost pixels of the display.
 // Skip is how many cols of the 1st char to skip for smooth scrolling
 
-static inline void sendString( const char *s , uint8_t skip ,  uint8_t r,  uint8_t g,  uint8_t b ) {
+static inline void sendString( const char *s , uint8_t skip ,  const uint8_t r,  const uint8_t g,  const uint8_t b ) {
 
   unsigned int l=PIXELS/(FONT_WIDTH+INTERCHAR_SPACE); 
 
   sendChar( *s , skip ,  r , g , b );   // First char is special case becuase it can be stepped for smooth scrolling
   
-
   while ( *(++s) && l--) {
 
     sendChar( *s , 0,  r , g , b );
@@ -296,7 +303,7 @@ static inline void sendString( const char *s , uint8_t skip ,  uint8_t r,  uint8
 
 const uint8_t altfont[] PROGMEM = {
   0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,//  
-  0xfa,0xfa,0x00,0x00,0x00,0x00,0x00,0x00,// !
+  0x06,0x06,0x30,0x30,0x60,0xc0,0xc0,0x00,// !
   0xe0,0xe0,0x00,0xe0,0xe0,0x00,0x00,0x00,// "
   0x28,0xfe,0xfe,0x28,0xfe,0xfe,0x28,0x00,// #
   0xf6,0xf6,0xd6,0xd6,0xd6,0xde,0xde,0x00,// $
@@ -421,8 +428,6 @@ static inline void sendStringAlt( const char *s  ) {
 
   unsigned int l=PIXELS/(ALTFONT_WIDTH+INTERCHAR_SPACE); 
 
-  sendCharAlt( *s  );   // First char is special case becuase it can be stepped for smooth scrolling
-  
   while ( l--) {
 
     char c;  
@@ -457,13 +462,6 @@ void ledsetup() {
   
 }
 
-// Just wait long enough without sending any bots to cause the pixels to latch and display the last sent frame
-
-void show() {
-  delayMicroseconds( (RES / 1000UL) + 1);       // Round up since the delay must be _at_least_ this long (too short might not work, too long not a problem)
-}
-
-
 /*
 
   That is the whole API. What follows are some demo functions rewriten from the AdaFruit strandtest code...
@@ -490,7 +488,6 @@ void setup() {
 }
 
 
-
 // https://learn.adafruit.com/led-tricks-gamma-correction/the-quick-fix
 
 const uint8_t PROGMEM gamma[] = {
@@ -512,18 +509,18 @@ const uint8_t PROGMEM gamma[] = {
   215,218,220,223,225,228,231,233,236,239,241,244,247,249,252,255 };
 
 // Map 0-255 visual brightness to 0-255 LED brightness 
-#define GAMMA(x) (pgm_read_byte(&gamma[x])
+#define GAMMA(x) (pgm_read_byte(&gamma[x]))
 
 
 void showcountdown() {
 
   // Start sequence.....
 
-  const char *countdownstr = "      COUNT ";
-
+  const char *countdownstr = "      TOTAL WORLD DOMINATION BEGINS IN ";
 
   unsigned int count = 600; 
 
+  clear();
   while (count>0) {
 
     count--;
@@ -531,18 +528,52 @@ void showcountdown() {
     uint8_t digit1 = count/100;
     uint8_t digit2 = (count - (digit1*100)) / 10;
     uint8_t digit3 = (count - (digit1*100) - (digit2*10));
+
+    uint8_t char1 = digit1 + '0';
+    uint8_t char2 = digit2 + '0';
+    uint8_t char3 = digit3 + '0';
     
-    uint8_t brightness = GAMMA( (count % 100) * 256 / 100) );
+    uint8_t brightness = GAMMA( ((count % 100) * 256)  / 100 );
 
     cli();
-    sendString( countdownstr , 0 , brightness , brightness , brightness );      
-    sendChar( digit1 +'0' , 0 , 0x80, 0 , 0 );
-    sendChar( (digit2>'5') ? '.':' ' , 0 , 0x80, 0 , 0  );
-    sendChar( digit2+'0' , 0 , 0x80, 0 , 0  );
-    sendChar( digit3+'0' , 0 , 0x80, 0 , 0 );
+    sendString( countdownstr , 1 , brightness , brightness , brightness );      
+ 
+    sendRowRGB( 0x00 , 0 , 0 , 0xff );
+ 
+  //  sendChar( '0' , 0 , 0x80, 0 , 0 );
+    
+    sendChar( char1 , 0 , 0x80, 0 , 0 );
+    sendChar( '.'   , 0 , 0x80, 0 , 0  );
+    sendChar( char2 , 0 , 0x80, 0 , 0  );
+    sendChar( char3 , 0 , 0x80, 0 , 0 );
+    
     sei();
     show();
   }
+
+  count = 100;
+
+  while (count>0) {
+
+    count--;
+
+    
+    uint8_t brightness = GAMMA( ((count % 100) * 256)  / 100 );
+
+    cli();
+    sendString( countdownstr , 1 , brightness , brightness , brightness );      
+
+    sendRowRGB( 0x00 , 0 , 0 , 0xff );   // We need to quickly send a blank byte just to keep from missing our deadlne.
+    sendChar( '0' , 0 , brightness, 0 , 0 );
+    sendChar( '.' , 0 , brightness, 0 , 0 );
+    sendChar( '0' , 0 , brightness, 0 , 0 );
+    sendChar( '0' , 0 , brightness, 0 , 0 );
+     
+    
+    sei();
+    show();
+  }
+  
   
 }
 
@@ -553,20 +584,18 @@ void showstarfield() {
  
   uint8_t sectors = (PIXELS / field);      // Repeating sectors makes for more stars and faster update
 
-  for(unsigned int i=0; i<100;i++) {
+  for(unsigned int i=0; i<500;i++) {
 
-    unsigned int r = random( field * 8);   // Random slow, so grab one big number and we will break it down. 
+    unsigned int r = random( PIXELS * 8 );   // Random slow, so grab one big number and we will break it down. 
     
 
-    uint8_t x = r /8; 
+    unsigned int x = r /8; 
     uint8_t y = r & 0x07;                // We use 7 rows
     uint8_t bitmask = (2<<y);           // Start at bit #1 since we enver use the bottom bit
 
     cli();    
 
-    for( uint8_t s=sectors+1;s;s--) {   // +1 so we dfingately run off the past of the screen
-      
-      uint8_t l=x; 
+      unsigned int l=x; 
     
       while (l--) {
            sendRowRGB( 0 , 0x00, 0x00, 0x00);          
@@ -574,13 +603,13 @@ void showstarfield() {
         
       sendRowRGB( bitmask , 0x40, 0x40, 0xff);  // Starlight blue
 
-      l = field-x;
+      l = PIXELS-x;
       
       while (l--) {
            sendRowRGB( 0 , 0x00, 0x00, 0x00);          
       }      
         
-    }      
+          
 
     sei();
 
@@ -641,9 +670,9 @@ void showinvaderwipe( uint8_t which , const char *pointsStr , uint8_t r , uint8_
   for( uint8_t p = 0 ; p<strlen( pointsStr) ; p++ ) {
 
       cli();
-      //sendStringAlt( "        " );
+      sendStringAlt( "                " );
       sendIcon( enimies , which , 0 , ENIMIES_WIDTH , r , g , b );
-      for(uint8_t i=0; i< p;i++ ){        
+      for(uint8_t i=0; i<=p ;i++ ){        
         sendChar( *(pointsStr+i) , 0 ,r>>2 , g>>2 , b>>2 );     // Dim text slightly
       }
       sei();
@@ -716,14 +745,18 @@ void showinvaders() {
 }
 
 
+
+
+
 void showallyourbase() {
   
-  const char *allyourbase = "  CAT: ALL YOUR BASE ARE BELONG TO US !!!    " ;
+  const char *allyourbase = "CAT: ALL YOUR BASE ARE BELONG TO US !!! " ;
 
+   clear();
   for(unsigned int slide=10000; slide ; slide-=10 ) {
       altbright = (slide & 0xff);
       cli();      
-      sendRowRGB( 0 , 0 , 0 , 0 );
+      sendChar(' ' , 0 , 0 , 0 , 0 );
       sendStringAlt( allyourbase);
       sei();
       show();
@@ -771,74 +804,65 @@ void showallyourbase() {
 
       ;
 
+#define JAB_MAX_BRIGHTNESS 0xff
+#define JAB_MIN_BRIGHTNESS 0x00
+#define JAB_STEPS (JAB_MAX_BRIGHTNESS-JAB_MIN_BRIGHTNESS)
 
 void showjabber() {
 
-
   uint8_t sector =0;
-  uint8_t step = 0;
-  
+  uint8_t step=0;
+    
   while (*m) {      
 
-      step++;
-      if (step ==0 ) {
+      if (step== JAB_STEPS) {
+        step=0;
         sector++;
         if (sector==3) {
           sector=0;
-          }
+        }
+      } else {
+        step++;
       }
+
+      uint8_t rampup = JAB_MIN_BRIGHTNESS + step;
+      uint8_t rampdown = JAB_MIN_BRIGHTNESS + (JAB_STEPS - step); 
       
       uint8_t r,g,b;
       
       switch( sector ) {
         case 0: 
-            r=step;
-            g=~step;
-            b=0;
+            r=rampup;
+            g=rampdown;
+            b=JAB_MIN_BRIGHTNESS;
             break;
          case 1:
-            r=~step;
-            g=0;
-            b=step;
+            r=rampdown;
+            g=JAB_MIN_BRIGHTNESS;
+            b=rampup;
             break;
          case 2:
-            r=0;
-            g=step;
-            b=~step;
+            r=JAB_MIN_BRIGHTNESS;
+            g=rampup;
+            b=rampdown;
             break;
-         case 3:
-            r=0;
-            b=step;
-            g=255;
-            break;
-          case 4:
-            r=0;
-            g=~step;
-            b=255;
-            break;
-          case 5:
-            r=0;
-            g=0;
-            b=~step;
-            break;
+      
+      };
+
+      for( uint8_t step=0; step<FONT_WIDTH+INTERCHAR_SPACE  ; step++ ) {   // step though each column of the 1st char for smooth scrolling
+
+
+       cli();
+
+       sendString( m , step , r, g, b );
+      
+       sei();
+
+       PORTB|=0x01;      
+       delay(1);
+       PORTB&=~0x01;
 
       }
-          
-          
-    for( uint8_t step=0; step<FONT_WIDTH+INTERCHAR_SPACE  ; step++ ) {   // step though each column of the 1st char for smooth scrolling
-
-
-      cli();
-
-      sendString( m , step ,r, g ,  b );
-      
-      sei();
-
-      PORTB|=0x01;      
-      delay(1);
-      PORTB&=~0x01;
-
-    }
 
     m++;
 
