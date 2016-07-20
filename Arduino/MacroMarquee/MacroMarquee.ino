@@ -20,14 +20,20 @@ static const uint8_t onBits=0b11111110;   // Bit pattern to write to port to tur
                                           // Note that these will still get 0 written to them when we send pixels
                                           // TODO: If we have time, we could even add a variable that will and/or into the bits before writing to the port to support any combination of bits/values                                  
 
-// These are the timing constraints taken mostly from the WS2812 datasheets 
-// These are chosen to be conservative and avoid problems rather than for maximum throughput 
+// These are the timing constraints taken mostly from 
+// imperically measuring the output from the Adafruit library strandtest program
 
-#define T1H  900    // Width of a 1 bit in ns
-#define T1L  600    // Width of a 1 bit in ns
+// Note that some of these defined values are for refernce only - the actual timing is determinted by the hard code.
 
-#define T0H  400    // Width of a 0 bit in ns
-#define T0L  900    // Width of a 0 bit in ns
+#define T1H  814    // Width of a 1 bit in ns - 13 cycles
+#define T1L  438    // Width of a 1 bit in ns -  7 cycles
+
+#define T0H  312    // Width of a 0 bit in ns -  5 cycles
+#define T0L  936    // Width of a 0 bit in ns - 15 cycles 
+
+// Phase #1 - Always 1  - 5 cycles
+// Phase #2 - Data part - 8 cycles
+// Phase #3 - Always 0  - 7 cycles
 
 #define RES 50000   // Width of the low gap between bits to cause a frame to latch
 
@@ -59,30 +65,63 @@ static inline void sendBitx8(  const uint8_t row , const uint8_t colorbyte , con
 
       "L_%=: \n\r"  
       
-      "out %[port], %[onBits] \n\t"                // (1 cycles) - send T0H high (all bits high)
-      
-      "mov r0, %[bitwalker] \n\t"                  // (1 cycles) 
-      "and r0, %[colorbyte] \n\t"                  // (1 cycles) - is the current bit in the color byte set?
-      "mov r0, %[row]       \n\t"                  // (1 cycles) - get possible output byte ready (does not update Z)
-      "brne ON_%= \n\t"                            // (1 cycles) - if zero after the and, then send full zero row
-      "mov r0,r1  \n\r"                            // (1 cycles) - bit in colorbyte was zero, so send all 0's. 
-      "ON_%=: \n\r"                                //              Note that if we land here becuase of brne, it takes 2 cycles, but it still takes 2 if the brne fell though to the mov
-      
-      // No extra delay here since the above calculation takes 7 cycles, using up the T0H of 350ns (https://www.google.com/webhp?sourceid=chrome-instant&ion=1&espv=2&ie=UTF-8#q=(350ns)%2F(1%2F(16mhz)))
-            
-      "out %[port], r0 \n\t"                       // (cycles 1) - set the output bits to [row] or 0x00 based on the bit in colorbyte. This is phase for T0H-T1H
+      "out %[port], %[onBits] \n\t"                 // (1 cycles) - send either T0H or the first part of T1H. Onbits is a mask of which bits have strings attached.
 
-      // We get T1H-T0H here, which is 350ns (6 cycles at 16mhz)
+      // Next determine if we are going to be sending 1s or 0s based on the current bit in the color....
+      
+      "mov r0, %[bitwalker] \n\t"                   // (1 cycles) 
+      "and r0, %[colorbyte] \n\t"                   // (1 cycles)  - is the current bit in the color byte set?
+      "breq OFF_%= \n\t"                            // (1 cycles) - bit in color is 0, then send full zero row (takes 2 cycles if branch taken, count the extra 1 on the target line)
 
+      // If we get here, then we want to send a 1 for every row that has an ON dot...
+      "nop \n\t  "                                  // (1 cycles) 
+      "out %[port], %[row]   \n\t"                  // (1 cycles) - set the output bits to [row] This is phase for T0H-T1H.
+                                                    // ==========
+                                                    // (5 cycles) - T0H (Phase #1)
+
+
+      "nop \n\t nop \n\t "                          // (2 cycles) 
+      "nop \n\t nop \n\t "                          // (2 cycles) 
+      "nop \n\t nop \n\t "                          // (2 cycles) 
+      "nop \n\t "                                   // (1 cycles) 
+
+      "out %[port], __zero_reg__ \n\t"              // (1 cycles) - set the output bits to 0x00 based on the bit in colorbyte. This is phase for T0H-T1H
+                                                    // ==========
+                                                    // (8 cycles) - Phase #2
+                                                    
       "ror %[bitwalker] \n\t"                      // (1 cycles) - get ready for next pass. On last pass, the bit will end up in C flag
-
-      "nop \n\t nop \n\t nop \n\t "                // (3 cycles) - this is phase #2 of the signal, the actual data values
-            
-      "out %[port],__zero_reg__  \n\t"             // (1 cycles) last step - T1L all bits low
-      
+                  
       "brcs DONE_%= \n\t"                          // (1 cycles) Exit if carry bit is set as a result of us walking all 8 bits. We assume that the process around us will tak long enough to cover the phase 3 delay
+
+      "nop \n\t \n\t "                             // (1 cycles) - When added to the 5 cycles in S:, we gte the 7 cycles of T1L
             
       "jmp L_%= \n\t"                              // (3 cycles) 
+                                                   // (1 cycles) - The OUT on the next pass of the loop
+                                                   // ==========
+                                                   // (7 cycles) - T1L
+                                                   
+                                                          
+      "OFF_%=: \n\r"                                // (1 cycles)    Note that we land here becuase of breq, which takes takes 2 cycles
+
+      "out %[port], __zero_reg__ \n\t"              // (1 cycles) - set the output bits to 0x00 based on the bit in colorbyte. This is phase for T0H-T1H
+                                                    // ==========
+                                                    // (5 cycles) - T0H
+
+      "ror %[bitwalker] \n\t"                      // (1 cycles) - get ready for next pass. On last pass, the bit will end up in C flag
+                  
+      "brcs DONE_%= \n\t"                          // (1 cycles) Exit if carry bit is set as a result of us walking all 8 bits. We assume that the process around us will tak long enough to cover the phase 3 delay
+
+      "nop \n\t nop \n\t "                          // (2 cycles) 
+      "nop \n\t nop \n\t "                          // (2 cycles) 
+      "nop \n\t nop \n\t "                          // (2 cycles)             
+      "nop \n\t nop \n\t "                          // (2 cycles)             
+      "nop \n\t "                                   // (1 cycles)             
+            
+      "jmp L_%= \n\t"                               // (3 cycles) 
+                                                    // (1 cycles) - The OUT on the next pass of the loop      
+                                                    // ==========
+                                                    //(15 cycles) - T0L 
+      
             
       "DONE_%=: \n\t"
 
