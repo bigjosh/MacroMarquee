@@ -391,7 +391,8 @@ void loop() {
          sendString( m , step , 0x00, 0x00 , 0x40 );    // Nice and not-too-bright blue hue
         
          sei();
-         
+        
+         _delay_ms(10);   // Slows down scrolling by pausing 10 milliseconds between horizontal steps         
   
       }
 
