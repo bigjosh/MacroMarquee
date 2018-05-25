@@ -39,7 +39,7 @@ static const uint8_t onBits=0b11111110;   // Bit pattern to write to port to tur
 // Phase #3 - Always 0  - 7 cycles
 
 
-#define RES 50000   // Width of the low gap between bits to cause a frame to latch
+#define RES 500000   // Width of the low gap between bits to cause a frame to latch
 
 // Here are some convience defines for using nanoseconds specs to generate actual CPU delays
 
