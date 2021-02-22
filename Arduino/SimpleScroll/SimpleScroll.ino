@@ -3,7 +3,7 @@
 
 // Change this to be at least as long as your pixel string (too long will work fine, just be a little slower)
 
-#define PIXELS 96*4  // Number of pixels in the string. I am using 4 meters of 96LED/M
+#define PIXEL_COUNT 4*96  // Number of pixels in the string. I am using 4 meters of 96LED/M
 
 // These values depend on which pins your 8 strings are connected to and what board you are using 
 // More info on how to find these at http://www.arduino.cc/en/Reference/PortManipulation
@@ -69,13 +69,12 @@ static inline void sendBitx8(  const uint8_t row , const uint8_t colorbyte , con
 
       "L_%=: \n\r"  
 
-      "mov r0, %[bitwalker] \n\t"                   //              Get ready to check if we should send all zeros
             
       "cli \n\t"                                   //              Turn off interrupts to make sure we meet the T0H deadline. 
       "out %[port], %[onBits] \n\t"                 //              Send either T0H or the first part of T1H. Onbits is a mask of which bits have strings attached.
 
       // Next determine if we are going to be sending 1s or 0s based on the current bit in the color....
-      
+      "mov r0, %[bitwalker] \n\t"                   // (1 cycles)  - Get ready to check if we should send all zeros      
       "and r0, %[colorbyte] \n\t"                   // (1 cycles)  - is the current bit in the color byte set?
       "breq OFF_%= \n\t"                            // (1 cycles) - bit in color is 0, then send full zero row (takes 2 cycles if branch taken, count the extra 1 on the target line)
 
@@ -86,7 +85,7 @@ static inline void sendBitx8(  const uint8_t row , const uint8_t colorbyte , con
       // making a short zero bit signal. 
       "out %[port], %[row]   \n\t"                  // (1 cycles) - set the output bits to [row] This is phase for T0H-T1H.
                                                     // ==========
-                                                    // (4 cycles) - T0H (Phase #1) 4 cycles / 16Mhz = 250 nanoseconds
+                                                    // (5 cycles) - T0H (Phase #1) 4 cycles / 16Mhz = 310 nanoseconds. We should be able to get by with 200ns, but I found a WS2813 that says 300ns. :\
 
       "sei \n\t"                                    // (1 cycles) OK to reenable interrupt now - T0H is the only timing sensitive phase https://wp.josh.com/2014/05/13/ws2812-neopixels-are-not-so-finicky-once-you-get-to-know-them/
                                                     
@@ -110,7 +109,6 @@ static inline void sendBitx8(  const uint8_t row , const uint8_t colorbyte , con
       "NEXT_%=: \n\t"
 
       "nop \n\t nop \n\t "                          // (2 cycles) 
-      "nop \n\t nop \n\t "                          // (2 cycles) 
 
       "out %[port], __zero_reg__ \n\t"              // (1 cycles) - set the output bits to 0x00 based on the bit in colorbyte. This is phase for T0H-T1H
                                                     // ==========
@@ -122,13 +120,15 @@ static inline void sendBitx8(  const uint8_t row , const uint8_t colorbyte , con
       "nop \n\t nop \n\t "                          // (2 cycles)      
       "nop \n\t nop \n\t "                          // (2 cycles)      
 
+      "nop \n\t nop \n\t "                          // (2 cycles)      
+      "nop \n\t nop \n\t "                          // (2 cycles)      
+
       "ror %[bitwalker] \n\t"                      // (1 cycles) - get ready for next pass. On last pass, the bit will end up in C flag
                   
       "brcc L_%= \n\t"                             // (1 cycles) Exit if carry bit is set as a result of us walking all 8 bits. We assume that the process around us will takw long enough to cover the phase 3 delay
 
-      
-      // Don't need an explicit delay here since the overhead that follows will always be long enough
-    
+                                                   // Above is at least 9 cycles including either the return + next call , or the brcc branch + cli at top
+          
       ::
       [port]    "I" (_SFR_IO_ADDR(PIXEL_PORT)),
       [row]   "d" (row),
@@ -145,7 +145,7 @@ static inline void sendBitx8(  const uint8_t row , const uint8_t colorbyte , con
 
 
 
-// Just wait long enough without sending any bots to cause the pixels to latch and display the last sent frame
+// Just wait long enough without sending any bits to cause the pixels to latch and display the last sent frame
 
 void show() {
   delayMicroseconds( (RES / 1000UL) + 1);       // Round up since the delay must be _at_least_ this long (too short might not work, too long not a problem)
@@ -956,67 +956,97 @@ const uint8_t fontdata[][FONT_WIDTH] PROGMEM = {
 template<class T, size_t N>
 constexpr size_t size(T (&)[N]) { return N; }
 
-// Send the pixels to form the specified char, not including interchar space
-// skip is the number of pixels to skip at the begining to enable sub-char smooth scrolling
 
-// TODO: Subtract the offset from the char before starting the send sequence to save time if nessisary
-// TODO: Also could pad the begining of the font table to aovid the offset subtraction at the cost of 20*8 bytes of progmem
-// TODO: Could pad all chars out to 8 bytes wide to turn the the multiply by FONT_WIDTH into a shift 
+// Show the passed string starting at the requested pixel column of the string in the leftmost col of the LED display
 
-static inline void sendChar( uint8_t c ,  uint8_t skip , uint8_t r,  uint8_t g,  uint8_t b ) {
+void sendString( const char *s , uint8_t start_col ,  const uint8_t r,  const uint8_t g,  const uint8_t b ) {
 
-  // Check if we have a font entry for this character and return if not
+  unsigned int l=PIXEL_COUNT; // L is the col we are currently sending to the LEDs. Note we do not start sending to the LEDs until we get to start_col 
 
-  if ( c  < ASCII_OFFSET || c > ASCII_OFFSET + size( fontdata ) ) {
-    return;
-  }
+  unsigned int col = 0;       // col we are at in the input string 
 
-  const uint8_t *charbase = fontdata[ c - ASCII_OFFSET ]  ; 
-
-  uint8_t col= FONT_WIDTH; 
-
-  while (skip && col) {    
-      charbase++;
-      skip--;
-      col--;    
-  }
   
-  while (col--) {
-      sendRowRGB( pgm_read_byte_near( charbase++ ) , r , g , b );
-  }    
-  
-  col=INTERCHAR_SPACE;
-  
-  while (col--) {
 
-    sendRowRGB( 0 , r , g , b );    // Interchar space
+  while (l) {   // We need to fill all pixels so keep going until l == 0, then we have filled the LEDs
+
+    if (*s) {   // Still any chars left to show? Work our way though col, only sending to LEDs when col > startcol 
+
+      uint8_t c = *s;
+
+
+      if ( c  >= ASCII_OFFSET && c <= (ASCII_OFFSET + size( fontdata )) ) {   // Check that we have a font entry for this char
+
+        const uint8_t *charbase = fontdata[ c - ASCII_OFFSET ];    // The font pixels for the current char
+
+        uint8_t c_col = 0;  // What col are we at in the char
+        
+
+        while ( l && (c_col < FONT_WIDTH) ) {
+
+            if ( col >= start_col ) {
+              sendRowRGB( pgm_read_byte_near( charbase + c_col ), r , g , b );
+              l--;                          
+            }
+            col++;
+            c_col++;
+        }      
+
+        while ( l && ( c_col < (FONT_WIDTH + INTERCHAR_SPACE) ) ) {
+
+            if ( col >= start_col ) {          
+              sendRowRGB( 0 , r , g , b );    // Interchar space
+              l--;              
+            }
+            col++;
+            c_col++;
+        }
+
+      }
     
-  }
-  
-}
+      s++;
 
+    } else {
 
-// Show the passed string. The last letter of the string will be in the rightmost pixels of the display.
-// Skip is how many cols of the 1st char to skip for smooth scrolling
+      // This fills out the rest of the LEDs with off pixels if the string was too short
+      // This is neesisary becuase (1) it keeps send time aprox consistant regardless of string, and 
+      // (2) some WS2813 LEDs freak out if you do not seen a full data stream each time. 
 
+      sendRowRGB( 0 , r , g , b );    // Interchar space
+      l--;
+      
+    }
 
-static inline void sendString( const char *s , uint8_t skip ,  const uint8_t r,  const uint8_t g,  const uint8_t b ) {
-
-  unsigned int l=PIXELS/(FONT_WIDTH+INTERCHAR_SPACE); 
-
-  sendChar( *s , skip ,  r , g , b );   // First char is special case becuase it can be stepped for smooth scrolling
-  
-  while ( *(++s) && l--) {
-
-    sendChar( *s , 0,  r , g , b );
-
+    
   }
 
   show();
+  
 }
+
+void scrollString( const char *s ) {
+
+  const unsigned len = strlen( s ) * (FONT_WIDTH+INTERCHAR_SPACE);     // Length of the string in pixels
+
+  for( uint8_t step=0; step<  len ; step++ ) {   // step though each column of the 1st char for smooth scrolling
+
+    sendString( s , step , 0x00, 0x00 , 0x42 );    // Nice and not-too-bright blue hue         
+    delay(10);
+     
+  }
+  
+}
+        
+
 
 void setup() {
   PIXEL_DDR |= onBits;         // Set used pins to output mode
+
+  // This eems to reset some stuck pixels and leaves all outputs cleanly low
+  PIXEL_PORT |= onBits;       // Set all outputs to 1
+  delay( 100);
+  PIXEL_PORT &= ~onBits;       // Set all outputs to 0
+  delay( 100);
+  
 }
 
 static char jabberText[] = 
@@ -1058,27 +1088,16 @@ static char jabberText[] =
       
       ;
 
+
 void loop() {
-  
-  const char *m = jabberText;
-              
-  while (*m) {      
 
-
-      for( uint8_t step=0; step<FONT_WIDTH+INTERCHAR_SPACE  ; step++ ) {   // step though each column of the 1st char for smooth scrolling
-
-         cli();
-  
-         sendString( m , step , 0x00, 0x00 , 0x42 );    // Nice and not-too-bright blue hue
-        
-         sei();
-         
-  
-      }
-
-    m++;
-
+  //sendString( "josh is very nice and I like him." , 0 , 0x00, 0x00 , 0x42 );    // Nice and not-too-bright blue hue         
+  while (1) {
+    scrollString(  "josh is very nice and I like him." );
+    sendString( "EXXXXX." , 0 , 0x30, 0x00 , 0x00 );
+    delay(1000);
   }
-
+  while (1); 
+  scrollString( jabberText );
 
 }
