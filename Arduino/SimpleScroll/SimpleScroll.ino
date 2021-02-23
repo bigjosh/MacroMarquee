@@ -3,7 +3,7 @@
 
 // Change this to be at least as long as your pixel string (too long will work fine, just be a little slower)
 
-#define PIXEL_COUNT 4*96  // Number of pixels in the string. I am using 4 meters of 96LED/M
+#define PIXEL_COUNT 96  // Number of pixels in the string. I am using 4 meters of 96LED/M
 
 // These values depend on which pins your 8 strings are connected to and what board you are using 
 // More info on how to find these at http://www.arduino.cc/en/Reference/PortManipulation
@@ -152,16 +152,7 @@ void show() {
 }
 
 
-// Send 3 bytes of color data (R,G,B) for a signle pixel down all the connected stringsat the same time
-// A 1 bit in "row" means send the color, a 0 bit means send black. 
 
-static inline void sendRowRGB( uint8_t row ,  uint8_t r,  uint8_t g,  uint8_t b ) {
-
-  sendBitx8( row , g , onBits);    // WS2812 takes colors in GRB order
-  sendBitx8( row , r , onBits);    // WS2812 takes colors in GRB order
-  sendBitx8( row , b , onBits);    // WS2812 takes colors in GRB order
-  
-}
 
 // This nice 5x7 font from here...
 // http://sunge.awardspace.com/glcd-sd/node4.html
@@ -952,58 +943,128 @@ const uint8_t fontdata[][FONT_WIDTH] PROGMEM = {
 };
 
 
+struct colorState_t {
+  uint8_t r;
+  uint8_t g;
+  uint8_t b;
+};
+
+struct displayState_t {
+  colorState_t colorState;
+  
+};
+
+// Current display state with default values. 
+
+displayState_t displayState = {
+  { 0x00 , 0x40 , 0x00 } ,        // nice blue
+  
+};
+
+
+// Send 3 bytes of color data (R,G,B) for a signle pixel down all the connected stringsat the same time
+// A 1 bit in "row" means send the color, a 0 bit means send black. 
+
+static inline void sendCol( uint8_t colBits  ) {
+
+  sendBitx8( colBits , displayState.colorState.g , onBits);    // WS2812 takes colors in GRB order
+  sendBitx8( colBits , displayState.colorState.r , onBits);    // WS2812 takes colors in GRB order
+  sendBitx8( colBits , displayState.colorState.b , onBits);    // WS2812 takes colors in GRB order
+  
+}
+
+int setColor( const char *c ) {
+
+  return 0;
+}
+
+
 // Size of array from https://stackoverflow.com/a/18078435/3152071
 template<class T, size_t N>
 constexpr size_t size(T (&)[N]) { return N; }
 
 
 // Show the passed string starting at the requested pixel column of the string in the leftmost col of the LED display
+// Not that start_col can be negative
 
-void sendString( const char *s , uint8_t start_col ,  const uint8_t r,  const uint8_t g,  const uint8_t b ) {
+void sendString( const char *s , int start_col ) {
 
   unsigned int l=PIXEL_COUNT; // L is the col we are currently sending to the LEDs. Note we do not start sending to the LEDs until we get to start_col 
 
   unsigned int col = 0;       // col we are at in the input string 
 
-  
-
+  while (l && start_col < 0) {
+    sendCol( 0  );    
+    start_col++;
+    l--;
+  }
+ 
   while (l) {   // We need to fill all pixels so keep going until l == 0, then we have filled the LEDs
-
+   
     if (*s) {   // Still any chars left to show? Work our way though col, only sending to LEDs when col > startcol 
 
       uint8_t c = *s;
+/*
+      s++; 
+            
+      if ( c == '#' ) {   // All commands start with `#`
 
+        uint8_t command = *s; 
 
-      if ( c  >= ASCII_OFFSET && c <= (ASCII_OFFSET + size( fontdata )) ) {   // Check that we have a font entry for this char
+        s++;
 
-        const uint8_t *charbase = fontdata[ c - ASCII_OFFSET ];    // The font pixels for the current char
+        switch (toupper(command)) {
 
-        uint8_t c_col = 0;  // What col are we at in the char
-        
-
-        while ( l && (c_col < FONT_WIDTH) ) {
-
-            if ( col >= start_col ) {
-              sendRowRGB( pgm_read_byte_near( charbase + c_col ), r , g , b );
-              l--;                          
+          case '#' : {
+                      
             }
-            col++;
-            c_col++;
-        }      
+            break;   // Two consecutive '#' is an escape to show a '#'. c is alreadry # so break. 
 
-        while ( l && ( c_col < (FONT_WIDTH + INTERCHAR_SPACE) ) ) {
-
-            if ( col >= start_col ) {          
-              sendRowRGB( 0 , r , g , b );    // Interchar space
-              l--;              
-            }
-            col++;
-            c_col++;
+          case 'C':          
+            s+=setColor( s );
+            c=0x00;         // Color change does not write anything to the screen
+            break;
+          
         }
 
+        
       }
-    
-      s++;
+*/
+       if (c) {
+
+        if ( c  >= ASCII_OFFSET && c <= (ASCII_OFFSET + size( fontdata )) ) {   // Check that we have a font entry for this char
+  
+          const uint8_t *charbase = fontdata[ c - ASCII_OFFSET ];    // The font pixels for the current char
+  
+          uint8_t c_col = 0;  // What col are we at in the char
+          
+  
+          while ( l && (c_col < FONT_WIDTH) ) {
+  
+              if ( col >= start_col ) {
+                sendCol( pgm_read_byte_near( charbase + c_col ) );
+                l--;                          
+              }
+              col++;
+              c_col++;
+          }      
+  
+          while ( l && ( c_col < (FONT_WIDTH + INTERCHAR_SPACE) ) ) {
+  
+              if ( col >= start_col ) {          
+                sendCol( 0  );    // Interchar space
+                l--;              
+              }
+              col++;
+              c_col++;
+          }
+  
+        }
+
+        s++;      
+        
+      }
+      
 
     } else {
 
@@ -1011,7 +1072,7 @@ void sendString( const char *s , uint8_t start_col ,  const uint8_t r,  const ui
       // This is neesisary becuase (1) it keeps send time aprox consistant regardless of string, and 
       // (2) some WS2813 LEDs freak out if you do not seen a full data stream each time. 
 
-      sendRowRGB( 0 , r , g , b );    // Interchar space
+      sendCol( 0  );    // Interchar space
       l--;
       
     }
@@ -1025,11 +1086,11 @@ void sendString( const char *s , uint8_t start_col ,  const uint8_t r,  const ui
 
 void scrollString( const char *s ) {
 
-  const unsigned len = strlen( s ) * (FONT_WIDTH+INTERCHAR_SPACE);     // Length of the string in pixels
+  const int pixel_len = strlen( s ) * (FONT_WIDTH+INTERCHAR_SPACE);     // Length of the string in pixels. Note this must be signed to allow the compare in the line below. 
 
-  for( uint8_t step=0; step<  len ; step++ ) {   // step though each column of the 1st char for smooth scrolling
+  for( int step= -1 * pixel_len ; step<  pixel_len ; step++ ) {   // step though each column of the 1st char for smooth scrolling
 
-    sendString( s , step , 0x00, 0x00 , 0x42 );    // Nice and not-too-bright blue hue         
+    sendString( s , step  );    // Nice and not-too-bright blue hue         
     delay(10);
      
   }
@@ -1046,6 +1107,8 @@ void setup() {
   delay( 100);
   PIXEL_PORT &= ~onBits;       // Set all outputs to 0
   delay( 100);
+
+  //Serial.begin(9600);
   
 }
 
@@ -1092,9 +1155,13 @@ static char jabberText[] =
 void loop() {
 
   //sendString( "josh is very nice and I like him." , 0 , 0x00, 0x00 , 0x42 );    // Nice and not-too-bright blue hue         
+
+  int x=-10;
+  
   while (1) {
     scrollString(  "josh is very nice and I like him." );
-    sendString( "EXXXXX." , 0 , 0x30, 0x00 , 0x00 );
+    sendString( "1234567890." , x  );
+    x++;
     delay(1000);
   }
   while (1); 
