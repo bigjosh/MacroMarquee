@@ -973,11 +973,18 @@ static inline void sendCol( uint8_t colBits  ) {
   
 }
 
-int setColor( const char *c ) {
 
-  return 0;
+
+uint8_t parsehexdigit( const char c ) {
+  if ( isdigit(c) ) return c-'0';
+  if ( isxdigit(c) ) return toupper(c)-'A';
+  return 0; // Sensible error value  
 }
 
+
+uint8_t parse2hexdigits( const char *s ) {
+  return (parsehexdigit( s[0] ) << 4 ) + parsehexdigit( s[1] );
+}
 
 // Size of array from https://stackoverflow.com/a/18078435/3152071
 template<class T, size_t N>
@@ -1004,32 +1011,24 @@ void sendString( const char *s , int start_col ) {
     if (*s) {   // Still any chars left to show? Work our way though col, only sending to LEDs when col > startcol 
 
       uint8_t c = *s;
-/*
-      s++; 
+
+      s++;
             
-      if ( c == '#' ) {   // All commands start with `#`
+      if ( c == '#' && isxdigit( s[0] ) && isxdigit( s[1] ) && isxdigit( s[2] )&& isxdigit( s[3] ) && isxdigit( s[4]) && isxdigit( s[5] ) ) {   // Color set command has format #rrggbb with values in 2 digit hex
 
-        uint8_t command = *s; 
+        // Note that the isxdigit() check above will not match a 0x00 so will keep us form overrunning past the end of the string buffer
+        
+        displayState.colorState.r = parse2hexdigits( s );
+        s+=2;
+        displayState.colorState.g = parse2hexdigits( s );
+        s+=2;
+        displayState.colorState.b = parse2hexdigits( s );
+        s+=2;
 
-        s++;
-
-        switch (toupper(command)) {
-
-          case '#' : {
-                      
-            }
-            break;   // Two consecutive '#' is an escape to show a '#'. c is alreadry # so break. 
-
-          case 'C':          
-            s+=setColor( s );
-            c=0x00;         // Color change does not write anything to the screen
-            break;
-          
-        }
-
+        c=0x00;   // Do not display anything on the actual LEDs.         
         
       }
-*/
+
        if (c) {
 
         if ( c  >= ASCII_OFFSET && c <= (ASCII_OFFSET + size( fontdata )) ) {   // Check that we have a font entry for this char
@@ -1060,8 +1059,6 @@ void sendString( const char *s , int start_col ) {
           }
   
         }
-
-        s++;      
         
       }
       
@@ -1159,7 +1156,7 @@ void loop() {
   int x=-10;
   
   while (1) {
-    scrollString(  "josh is very nice and I like him." );
+    scrollString(  "josh is #440000very#000040 nice and I like him." );
     sendString( "1234567890." , x  );
     x++;
     delay(1000);
