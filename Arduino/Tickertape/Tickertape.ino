@@ -170,7 +170,7 @@ void show() {
 
 #define FONT_WIDTH 5      
 #define INTERCHAR_SPACE 1
-#define ASCII_OFFSET 0x20    // ASSCI code of 1st char in font array
+#define ASCII_OFFSET (0x20)     // ASCII code of 1st char in font array
 
 const byte fontdata[][FONT_WIDTH] PROGMEM = {
     { //  ASCII 0x20 (' ')
@@ -942,6 +942,15 @@ const byte fontdata[][FONT_WIDTH] PROGMEM = {
     },
 };
 
+// Size of array from https://stackoverflow.com/a/18078435/3152071
+template<class T, size_t N>
+constexpr size_t size(T (&)[N]) { return N; }
+
+// Is this char in the given font? 
+
+ byte isCharInFont(const char c) {
+   return ( c  >=  ASCII_OFFSET )  && ( c <=  ASCII_OFFSET + (char) size( fontdata ) ) ;
+ }
 
 struct colorState_t {
   byte r;
@@ -954,9 +963,17 @@ struct displaystate_t {
   unsigned frametime_ms;      // Minium time each frame is displayed
 };
 
-// Current display state. Global variable for efficiency. 
 
-static displaystate_t displaystate;
+// Default initial displayState
+
+static const displaystate_t initial_displaystate =  {
+  { 0x00 , 0x40 , 0x00 } ,        // Nice blue
+  20                              // Slow scroll
+};
+
+// Current display state. Global variable for efficiency.
+// Note that we retain these values so command changes are sticky 
+static displaystate_t displaystate = initial_displaystate;
 
 // Send 3 bytes of color data (R,G,B) for a signle pixel down all the connected strings at the same time
 // A 1 bit in "row" means send the color, a 0 bit means send black. 
@@ -981,9 +998,7 @@ byte parse2hexdigits( const char *s ) {
   return (parsehexdigit( s[0] ) << 4 ) + parsehexdigit( s[1] );
 }
 
-// Size of array from https://stackoverflow.com/a/18078435/3152071
-template<class T, size_t N>
-constexpr size_t size(T (&)[N]) { return N; }
+
 
 
 #define TICKER_BUFFER_SIZE 500    
@@ -1000,23 +1015,28 @@ unsigned tickerbuffer_tail=0;       // Points before the oldest recieved char
 unsigned tickerbuffer_edge=0;       // Points past the rightmost char on the LED display. Note the edg char might only be partial displayed if step != 0
 unsigned tickerbuffer_step=0;       // How many pixels into the rightmost displayed char are we? (we scroll 1 pixel rather than 1 char at a time for smoothness)
 
-// Store the inital displaystate from the previous frame.
-// We do this becuase a command that changes the displaystate can scroll off the left end of the display,
-// but it is still in effect until a new command comes in. 
+// Check if *s is a valid command string and process the command if it is. 
+// returns the legth of the command processed.
 
-displaystate_t initial_displaystate =  {
-  { 0x00 , 0x40 , 0x00 } ,        // nice blue
-  10
-};
+byte processCommand( const char *s) {
 
+  if ( s[0] == '#' && isxdigit( s[1] ) && isxdigit( s[2] ) && isxdigit( s[3] )&& isxdigit( s[4] ) && isxdigit( s[5]) && isxdigit( s[6] ) ) {
 
-// Send a frame of the animation. Will update all of the above variables to get read for the next frame. 
+    // This is a set color command.
+    s++;
+    displaystate.colorState.r = parse2hexdigits( s );
+    s+=2;
+    displaystate.colorState.g = parse2hexdigits( s );
+    s+=2;
+    displaystate.colorState.b = parse2hexdigits( s );
+    s+=2;
 
-void sendFrame() {
+    return 7;     // Len of color command
 
-  // Always start with the previous frame's initial display state
-  displaystate = initial_displaystate;
+  }
 
+  return 0;
+  
 }
 
 // Show the passed string starting at the requested pixel column
@@ -1028,90 +1048,97 @@ void sendFrame() {
 
 void drawString( const char *s , int start_col ) {
 
-  unsigned int pixel_count=PIXEL_COUNT; // How many pixels left to fill in the display? (We always fill the entire display)
+  int pixel_col=0; // How many pixels left to fill in the display? (We always fill the entire display)
 
-  while ()
+  // Each pass though this loop we send one column of pixels to the display
+  // Pixels fill from left side to right side, so the first thing we send is the leftmost visible column
 
+  byte char_col_count=0; // How many cols of current chardo we have left to sennd? 0=done with current char.
+  const byte *char_col_ptr;    // Cache the next column of pixels of the current char to send. Only valid if char_col_count > 0
 
+  // First shift everything right if start_col > 0
 
-  int col = 0;       // col we are at in the input string 
-
-  while (l && start_col < 0) {
-    sendCol( 0  );    
-    start_col++;
-    l--;
+  while ( pixel_col < start_col ) {
+      sendCol( 0  );    // All pixels in column off
+      pixel_col++;
   }
- 
-  while (l) {   // We need to fill all pixels so keep going until l == 0, then we have filled the LEDs
-   
-    if (*s) {   // Still any chars left to show? Work our way though col, only sending to LEDs when col > startcol 
 
-      byte c = *s;
+  while ( pixel_col < PIXEL_COUNT ) {
 
-      s++;
-            
-      if ( c == '#' && isxdigit( s[0] ) && isxdigit( s[1] ) && isxdigit( s[2] )&& isxdigit( s[3] ) && isxdigit( s[4]) && isxdigit( s[5] ) ) {   // Color set command has format #rrggbb with values in 2 digit hex
+    if (char_col_count) { 
 
-        // Note that the isxdigit() check above will not match a 0x00 so will keep us form overrunning past the end of the string buffer
-        
-        displaystate.colorState.r = parse2hexdigits( s );
-        s+=2;
-        displaystate.colorState.g = parse2hexdigits( s );
-        s+=2;
-        displaystate.colorState.b = parse2hexdigits( s );
-        s+=2;
-
-        c=0x00;   // Do not display anything on the actual LEDs.         
-        
+      // We are currently sending a char so send next column of pixels (if we are on the display yet) 
+      if ( start_col < 0 ) {
+        // Still using up the leading negative start_col offset that was passed into drawString(), so do not actually send any data
+        start_col++;
+      } else {
+        sendCol( pgm_read_byte_near( char_col_ptr++ ));   // Actually send the data to the display
+        pixel_col++;                                      // ...and count the pixel coulmn used up
       }
 
-       if (c) {
+      char_col_count--;
 
-        if ( c  >= ASCII_OFFSET && c <= (ASCII_OFFSET + size( fontdata )) ) {   // Check that we have a font entry for this char
-  
-          const byte *charbase = fontdata[ c - ASCII_OFFSET ];    // The font pixels for the current char
-  
-          byte c_col = 0;  // What col are we at in the char
-          
-  
-          while ( l && (c_col < FONT_WIDTH) ) {
-  
-              if ( col >= start_col ) {
-                sendCol( pgm_read_byte_near( charbase + c_col ) );
-                l--;                          
-              }
-              col++;
-              c_col++;
-          }      
-  
-          while ( l && ( c_col < (FONT_WIDTH + INTERCHAR_SPACE) ) ) {
-  
-              if ( col >= start_col ) {          
-                sendCol( 0  );    // Interchar space
-                l--;              
-              }
-              col++;
-              c_col++;
+      if (char_col_count == 0 ) {
+        // We reached the end of the current char, so add interchar space
+
+        char_col_count = INTERCHAR_SPACE;
+
+        while ( char_col_count && pixel_col < PIXEL_COUNT ) {
+
+          if ( start_col < 0 ) {
+            // Still using up the leading negative start_col offset that was passed into drawString(), so do not actually send any data
+            start_col++;        
+          } else {
+            sendCol( 0 );       // Actually send the data (space) to the display
+            pixel_col++;      // ...and count the pixel coulmn used up
           }
-  
+
+          char_col_count--;
+
         }
-        
       }
       
+    } else if ( *s ) {
+
+      // If we get here, we are not currently sending a char and there are more chars left in the strring.
+
+      // First check if it is a command...
+
+      byte processedCommandRet = processCommand(s);
+
+      if ( processedCommandRet ) {
+
+        // Command successfully processed, so skip it
+        s+=processedCommandRet;    
+          
+      } else {
+
+        // Not a command, so a char.
+
+        const char c = *s;
+
+        if ( isCharInFont( c ) )  {   // Check that we have a font entry for this char
+
+          // A valid char we can send to the display
+
+          char_col_ptr = &(fontdata[ c - ASCII_OFFSET ][0]) ;    // The font pixels for the current char
+          char_col_count = FONT_WIDTH;
+
+        }
+
+        // Here we skip the char even if it was not valid so we don't get stuck
+        s++;
+
+      }
 
     } else {
 
-      // This fills out the rest of the LEDs with off pixels if the string was too short
-      // This is neesisary becuase (1) it keeps send time aprox consistant regardless of string, and 
-      // (2) some WS2813 LEDs freak out if you do not seen a full data stream each time. 
-
-      sendCol( 0  );    // Interchar space
-      l--;
-      
+      // If we got here then we ran out of string to send, so fill the rest of the display with blank columns
+      sendCol( 0  );    // All pixels in column off
+      pixel_col++;
     }
-
-    
   }
+
 
   show();
   
@@ -1165,9 +1192,9 @@ void setup() {
 
   // This seems to reset some stuck pixels and leaves all outputs cleanly low
   PIXEL_PORT |= onBits;       // Set all outputs to 1
-  delay( 100);
+  delay( 1000);
   PIXEL_PORT &= ~onBits;       // Set all outputs to 0
-  delay( 100);
+  delay( 1000);
 
   //Serial.begin(9600);
   
@@ -1217,14 +1244,25 @@ void loop() {
 
   //sendString( "josh is very nice and I like him." , 0 , 0x00, 0x00 , 0x42 );    // Nice and not-too-bright blue hue         
 
-  drawString( "#002000zero" , 0 ) ;
+  drawString(  "hello josh is #440000very#000040 nice and I like him."  , 0 ) ;
   delay(3000);
+
+  drawString( "a #000020BLUE#002200 b" , 10 );
+  delay(3000);
+
   drawString( "ten" , 10 );
   delay(3000);
   drawString( "negative 10" , -10);
   delay(3000);
-  drawString( "one hundered" , 100);
+  drawString( "fifty" , 50);
   delay(3000);
+
+  for(int i=0; i<10;i++) {
+    drawString( "||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||" , 0 );
+    delay(1000);
+    drawString( "||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||" , 1 );
+    delay(1000);
+  }
 
   return;
 
