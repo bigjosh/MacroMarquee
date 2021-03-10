@@ -3,7 +3,7 @@
 
 // Change this to be at least as long as your pixel string (too long will work fine, just be a little slower)
 
-#define PIXEL_COUNT 96  // Number of pixels in the string. I am using 4 meters of 96LED/M
+#define PIXEL_COUNT 60  // Number of pixels in the string. I am using 4 meters of 96LED/M
 
 // These values depend on which pins your 8 strings are connected to and what board you are using 
 // More info on how to find these at http://www.arduino.cc/en/Reference/PortManipulation
@@ -23,33 +23,9 @@ static const byte onBits=0b11111110;   // Bit pattern to write to port to turn o
                                           // Note that these will still get 0 written to them when we send pixels
                                           // TODO: If we have time, we could even add a variable that will and/or into the bits before writing to the port to support any combination of bits/values                                  
 
-// These are the timing constraints taken mostly from 
-// imperically measuring the output from the Adafruit library strandtest program
 
-// Note that some of these defined values are for refernce only - the actual timing is determinted by the hard code.
+#define RES_NS 500000   // Width of the low gap between bits to cause a frame to latch, from the WS2812B datasheets (recently increased to 50us for newer chips)
 
-#define T1H  814    // Width of a 1 bit in ns - 13 cycles
-#define T1L  438    // Width of a 1 bit in ns -  7 cycles
-
-#define T0H  312    // Width of a 0 bit in ns -  5 cycles
-#define T0L  936    // Width of a 0 bit in ns - 15 cycles 
-
-// Phase #1 - Always 1  - 5 cycles
-// Phase #2 - Data part - 8 cycles
-// Phase #3 - Always 0  - 7 cycles
-
-
-#define RES 500000   // Width of the low gap between bits to cause a frame to latch
-
-// Here are some convience defines for using nanoseconds specs to generate actual CPU delays
-
-#define NS_PER_SEC (1000000000L)          // Note that this has to be SIGNED since we want to be able to check for negative values of derivatives
-
-#define CYCLES_PER_SEC (F_CPU)
-
-#define NS_PER_CYCLE ( NS_PER_SEC / CYCLES_PER_SEC )
-
-#define NS_TO_CYCLES(n) ( (n) / NS_PER_CYCLE )
 
 
 // Sends a full 8 bits down all the pins, represening a single color of 1 pixel
@@ -148,7 +124,7 @@ static inline void sendBitx8(  const byte row , const byte colorbyte , const byt
 // Just wait long enough without sending any bits to cause the pixels to latch and display the last sent frame
 
 void show() {
-  delayMicroseconds( (RES / 1000UL) + 1);       // Round up since the delay must be _at_least_ this long (too short might not work, too long not a problem)
+  delayMicroseconds( (RES_NS / 1000UL) + 1);       // Round up since the delay must be _at_least_ this long (too short might not work, too long not a problem)
 }
 
 
@@ -968,7 +944,7 @@ struct displaystate_t {
 
 static const displaystate_t initial_displaystate =  {
   { 0x00 , 0x40 , 0x00 } ,        // Nice blue
-  20                              // Slow scroll
+  30                              // Slow scroll
 };
 
 // Current display state. Global variable for efficiency.
@@ -1048,13 +1024,15 @@ byte processCommand( const char *s) {
 
 void drawString( const char *s , int start_col ) {
 
+  displaystate = initial_displaystate;    // Always start with the initial display state
+
   int pixel_col=0; // How many pixels left to fill in the display? (We always fill the entire display)
 
   // Each pass though this loop we send one column of pixels to the display
   // Pixels fill from left side to right side, so the first thing we send is the leftmost visible column
 
-  byte char_col_count=0; // How many cols of current chardo we have left to sennd? 0=done with current char.
-  const byte *char_col_ptr;    // Cache the next column of pixels of the current char to send. Only valid if char_col_count > 0
+  byte char_col_count=0;            // How many cols of current chardo we have left to sennd? 0=done with current char.
+  const byte *char_col_ptr=NULL;    // Cache the next column of pixels of the current char to send. Only valid if char_col_count > 0
 
   // First shift everything right if start_col > 0
 
@@ -1152,17 +1130,19 @@ unsigned getStringWidth(const char *s) {
 
   while (*s) {
 
-    byte c = *s;
+    byte retVal = processCommand(s);
 
-    s++;
-          
-    if ( c == '#' && isxdigit( s[0] ) && isxdigit( s[1] ) && isxdigit( s[2] )&& isxdigit( s[3] ) && isxdigit( s[4]) && isxdigit( s[5] ) ) {   // Color set command has format #rrggbb with values in 2 digit hex
+    if (retVal) {
 
-      // This is a color command - does not use up any pixels.
+      s += retVal;
 
-    } else  if ( c  >= ASCII_OFFSET && c <= (ASCII_OFFSET + size( fontdata )) ) {   // Check that we have a font entry for this char
+    } else {
 
-      len += FONT_WIDTH;
+      if (  isCharInFont( *s )  ) {   // Check that we have a font entry for this char
+        len += FONT_WIDTH + INTERCHAR_SPACE;
+      }
+
+      s++;
 
     }
 
@@ -1174,18 +1154,51 @@ unsigned getStringWidth(const char *s) {
 
 void scrollString( const char *s ) {
 
-  const int pixel_len = strlen( s ) * (FONT_WIDTH+INTERCHAR_SPACE);     // Length of the string in pixels. Note this must be signed to allow the compare in the line below. 
+  int pixel_len = -1 * getStringWidth( s );
 
-  for( int step= -1 * pixel_len ; step<  pixel_len ; step++ ) {   // step though each column of the 1st char for smooth scrolling
+  for( int step= PIXEL_COUNT  ; step >  pixel_len ; step-- ) {   // step though each column of the 1st char for smooth scrolling
 
+    unsigned long startframe_ms = millis();
     drawString( s , step  );    // Nice and not-too-bright blue hue         
-    delay(10);
-     
+    
+    unsigned long endframe_ms = startframe_ms + displaystate.frametime_ms;
+
+    while (millis() < endframe_ms);
   }
   
 }
-        
 
+#define SERIAL_RX_BUFFER_LEN 200
+
+byte serial_rx_buffer[ SERIAL_RX_BUFFER_LEN ];
+
+unsigned volatile serial_rx_buffer_head = 0;       // Newly recieved bytes go here
+unsigned serial_rx_buffer_show = 0;                // We will display to the LEDs starting here 
+unsigned volatile serial_rx_buffer_tail = 0;       // Past end of LEDs
+
+// Increment the specified pointer with wrap
+
+#define SERIAL_RX_BUFFER_INC_PTR(x) ( (x==(SERIAL_RX_BUFFER_LEN-1) )? 0 : x+1 )
+
+ISR(USART_RX_vect) {
+
+  byte b = UDR0;      // Get newly recieved byte from the USART
+
+  unsigned new_head = SERIAL_RX_BUFFER_INC_PTR(serial_rx_buffer_head);        // Compute the new head after this char
+
+  if (new_head != serial_rx_buffer_tail)  {             // Room for another char? 
+      serial_rx_buffer[serial_rx_buffer_head] = b;
+      serial_rx_buffer_head = new_head;
+  }
+}
+
+// Enable recieve on RX pin at 9600,n,8,1 
+
+void init_serial() {
+  UBRR0 = 103;            // 9600bd at 16Mhz. From datahseet DS40001909A-page 222
+  UCSR0B |= 1 << RXEN0;   // Enable reciever on RX pin
+  UCSR0B |= 1 << RXCIE0;  // Enable recieve complete interrupt
+}
 
 void setup() {
   PIXEL_DDR |= onBits;         // Set used pins to output mode
@@ -1196,7 +1209,7 @@ void setup() {
   PIXEL_PORT &= ~onBits;       // Set all outputs to 0
   delay( 1000);
 
-  //Serial.begin(9600);
+  init_serial();
   
 }
 
@@ -1242,6 +1255,45 @@ static char jabberText[] =
 
 void loop() {
 
+  pinMode(LED_BUILTIN, OUTPUT);
+
+  while (1) {
+
+    char x[]=" ";
+
+    if ( serial_rx_buffer_head != serial_rx_buffer_tail ) {
+      x[0] = serial_rx_buffer[serial_rx_buffer_tail];
+      serial_rx_buffer_tail = SERIAL_RX_BUFFER_INC_PTR( serial_rx_buffer_tail );
+      scrollString( x );
+      digitalWrite(LED_BUILTIN, HIGH);
+    } else {
+      digitalWrite(LED_BUILTIN, LOW);
+
+    }
+
+
+  }
+
+
+  while (1) {
+
+
+      String i = Serial.readString();
+
+      scrollString(  "X" );
+
+      char a[20];
+
+      i.toCharArray( a , 20 );
+
+      scrollString(  a );
+
+      //scrollString(  "hello josh is #440000very#000040 nice and I like him." );
+
+      //scrollString(  "this is a  #440000test#000040 of the #004400system#000040." );
+
+  }  
+
   //sendString( "josh is very nice and I like him." , 0 , 0x00, 0x00 , 0x42 );    // Nice and not-too-bright blue hue         
 
   drawString(  "hello josh is #440000very#000040 nice and I like him."  , 0 ) ;
@@ -1283,5 +1335,3 @@ void loop() {
   scrollString( jabberText );
 
 }
-
-
