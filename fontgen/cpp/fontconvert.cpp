@@ -129,44 +129,38 @@ constexpr size_t size(T (&)[N]) { return N; }
 int main()
 {
 
+    cout << "/*------------------- FONT CUT TOP HERE -------------------------------*/" << std::endl;
+
     char c = ASCII_OFFSET;
     
     auto i=0;
     
     while ( i < size( Font5x7 ) ) {
         
-        const char *o; 
-        
-        char s[2];
-        
-        switch (c) {
-            
-            case '\\': o = "\\\\"; break;
-            case '\"': o = "\\\""; break;
-            case '\'': o = "\\\'"; break;
-            default : s[0] = c; s[1]=0x00; o=s; break;
-            
-            
+  
+        if (isprint( c )) {
+             printf("    { // ASCII 0x%02.2X ('%c')\n" , (unsigned) c , c );
+        }  else {
+             printf("    { // ASCII 0x%02.2X" ,  (unsigned) c );
         }
         
-        cout << "    LETTER( '" << o << "' , " << FONT_WIDTH <<  " ),  // ASCII " << std::hex << std::setfill('0') << std::setw(2) << (int) c << std::endl;
-        
+
         c++;
         
         
         for( auto j =0; j < FONT_WIDTH; j++ ) {
             
-            cout << "      BITS( 0b" << std::bitset<8>( Font5x7[ i ] ) << " ),"  <<  std::endl ;
+            cout << "       0b" << std::bitset<8>( Font5x7[ i ] ) << ","  <<  std::endl ;
             
             i++;
                 
         }
         
-        cout << "\r\n";
+        cout << "       0b00000000,  // Interchar space" <<  std::endl ;        // Interchar space
+        cout << "    },\r\n";
         
     }
     
-    cout<<"Hello World";
 
     return 0;
 }

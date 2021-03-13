@@ -3,7 +3,7 @@
 
 // Change this to be at least as long as your pixel string (too long will work fine, just be a little slower)
 
-#define PIXEL_COUNT 60  // Length of the strings in pixels. I am using a 1 meter long strings that have 60 LEDs per meter. 
+#define PIXEL_COUNT 58  // Length of the strings in pixels. I am using a 1 meter long strings that have 60 LEDs per meter. 
 
 
 
@@ -29,777 +29,778 @@ static const byte onBits=0b11111110;      // Bit pattern to write to port to tur
 // defines ascii characters 0x20-0x7F (32-127)
 // PROGMEM after variable name as per https://www.arduino.cc/en/Reference/PROGMEM
 
-#define FONT_WIDTH 5      
-#define INTERCHAR_SPACE 1
 #define ASCII_OFFSET (0x20)     // ASCII code of 1st char in font array
 
+#define FONT_WIDTH 6      
+
 const byte fontdata[][FONT_WIDTH] PROGMEM = {
-    { //  ASCII 0x20 (' ')
-        0b00000000 ,
-        0b00000000 ,
-        0b00000000 ,
-        0b00000000 ,
-        0b00000000 ,
-    },
-
-    { //  ASCII 0x21 ('!')
-        0b00000000 ,
-        0b00000000 ,
-        0b11111010 ,
-        0b00000000 ,
-        0b00000000 ,
-    },
-
-    { //  ASCII 0x22 ('"')
-        0b00000000 ,
-        0b11100000 ,
-        0b00000000 ,
-        0b11100000 ,
-        0b00000000 ,
-    },
-
-    { //  ASCII 0x23 ('#')
-        0b00101000 ,
-        0b11111110 ,
-        0b00101000 ,
-        0b11111110 ,
-        0b00101000 ,
-    },
-
-    { //  ASCII 0x24 ('$')
-        0b00100100 ,
-        0b01010100 ,
-        0b11111110 ,
-        0b01010100 ,
-        0b01001000 ,
-    },
-
-    { //  ASCII 0x25 ('%')
-        0b11000100 ,
-        0b11001000 ,
-        0b00010000 ,
-        0b00100110 ,
-        0b01000110 ,
-    },
-
-    { //  ASCII 0x26 ('&')
-        0b01101100 ,
-        0b10010010 ,
-        0b10101010 ,
-        0b01000100 ,
-        0b00001010 ,
-    },
-
-    { //  ASCII 0x27 (''')
-        0b00000000 ,
-        0b10100000 ,
-        0b11000000 ,
-        0b00000000 ,
-        0b00000000 ,
-    },
-
-    { //  ASCII 0x28 ('(')
-        0b00000000 ,
-        0b00111000 ,
-        0b01000100 ,
-        0b10000010 ,
-        0b00000000 ,
-    },
-
-    { //  ASCII 0x29 (')')
-        0b00000000 ,
-        0b10000010 ,
-        0b01000100 ,
-        0b00111000 ,
-        0b00000000 ,
-    },
-
-    { //  ASCII 0x2a ('*')
-        0b00010000 ,
-        0b01010100 ,
-        0b00111000 ,
-        0b01010100 ,
-        0b00010000 ,
-    },
-
-    { //  ASCII 0x2b ('+')
-        0b00010000 ,
-        0b00010000 ,
-        0b01111100 ,
-        0b00010000 ,
-        0b00010000 ,
-    },
-
-    { //  ASCII 0x2c (',')
-        0b00000000 ,
-        0b00001010 ,
-        0b00001100 ,
-        0b00000000 ,
-        0b00000000 ,
-    },
-
-    { //  ASCII 0x2d ('-')
-        0b00010000 ,
-        0b00010000 ,
-        0b00010000 ,
-        0b00010000 ,
-        0b00010000 ,
-    },
-
-    { //  ASCII 0x2e ('.')
-        0b00000000 ,
-        0b00000110 ,
-        0b00000110 ,
-        0b00000000 ,
-        0b00000000 ,
-    },
-
-    { //  ASCII 0x2f ('/')
-        0b00000100 ,
-        0b00001000 ,
-        0b00010000 ,
-        0b00100000 ,
-        0b01000000 ,
-    },
-
-    { //  ASCII 0x30 ('0')
-        0b01111100 ,
-        0b10001010 ,
-        0b10010010 ,
-        0b10100010 ,
-        0b01111100 ,
-    },
-
-    { //  ASCII 0x31 ('1')
-        0b00000000 ,
-        0b01000010 ,
-        0b11111110 ,
-        0b00000010 ,
-        0b00000000 ,
-    },
-
-    { //  ASCII 0x32 ('2')
-        0b01000010 ,
-        0b10000110 ,
-        0b10001010 ,
-        0b10010010 ,
-        0b01100010 ,
-    },
-
-    { //  ASCII 0x33 ('3')
-        0b10000100 ,
-        0b10000010 ,
-        0b10100010 ,
-        0b11010010 ,
-        0b10001100 ,
-    },
-
-    { //  ASCII 0x34 ('4')
-        0b00011000 ,
-        0b00101000 ,
-        0b01001000 ,
-        0b11111110 ,
-        0b00001000 ,
-    },
-
-    { //  ASCII 0x35 ('5')
-        0b11100100 ,
-        0b10100010 ,
-        0b10100010 ,
-        0b10100010 ,
-        0b10011100 ,
-    },
-
-    { //  ASCII 0x36 ('6')
-        0b00111100 ,
-        0b01010010 ,
-        0b10010010 ,
-        0b10010010 ,
-        0b00001100 ,
-    },
-
-    { //  ASCII 0x37 ('7')
-        0b10000000 ,
-        0b10001110 ,
-        0b10010000 ,
-        0b10100000 ,
-        0b11000000 ,
-    },
-
-    { //  ASCII 0x38 ('8')
-        0b01101100 ,
-        0b10010010 ,
-        0b10010010 ,
-        0b10010010 ,
-        0b01101100 ,
-    },
-
-    { //  ASCII 0x39 ('9')
-        0b01100000 ,
-        0b10010010 ,
-        0b10010010 ,
-        0b10010100 ,
-        0b01111000 ,
-    },
-
-    { //  ASCII 0x3a (':')
-        0b00000000 ,
-        0b01101100 ,
-        0b01101100 ,
-        0b00000000 ,
-        0b00000000 ,
-    },
-
-    { //  ASCII 0x3b (';')
-        0b00000000 ,
-        0b01101010 ,
-        0b01101100 ,
-        0b00000000 ,
-        0b00000000 ,
-    },
-
-    { //  ASCII 0x3c ('<')
-        0b00000000 ,
-        0b00010000 ,
-        0b00101000 ,
-        0b01000100 ,
-        0b10000010 ,
-    },
-
-    { //  ASCII 0x3d ('=')
-        0b00101000 ,
-        0b00101000 ,
-        0b00101000 ,
-        0b00101000 ,
-        0b00101000 ,
-    },
-
-    { //  ASCII 0x3e ('>')
-        0b10000010 ,
-        0b01000100 ,
-        0b00101000 ,
-        0b00010000 ,
-        0b00000000 ,
-    },
-
-    { //  ASCII 0x3f ('?')
-        0b01000000 ,
-        0b10000000 ,
-        0b10001010 ,
-        0b10010000 ,
-        0b01100000 ,
-    },
-
-    { //  ASCII 0x40 ('@')
-        0b01001100 ,
-        0b10010010 ,
-        0b10011110 ,
-        0b10000010 ,
-        0b01111100 ,
-    },
-
-    { //  ASCII 0x41 ('A')
-        0b01111110 ,
-        0b10001000 ,
-        0b10001000 ,
-        0b10001000 ,
-        0b01111110 ,
-    },
-
-    { //  ASCII 0x42 ('B')
-        0b11111110 ,
-        0b10010010 ,
-        0b10010010 ,
-        0b10010010 ,
-        0b01101100 ,
-    },
-
-    { //  ASCII 0x43 ('C')
-        0b01111100 ,
-        0b10000010 ,
-        0b10000010 ,
-        0b10000010 ,
-        0b01000100 ,
-    },
-
-    { //  ASCII 0x44 ('D')
-        0b11111110 ,
-        0b10000010 ,
-        0b10000010 ,
-        0b01000100 ,
-        0b00111000 ,
-    },
-
-    { //  ASCII 0x45 ('E')
-        0b11111110 ,
-        0b10010010 ,
-        0b10010010 ,
-        0b10010010 ,
-        0b10000010 ,
-    },
-
-    { //  ASCII 0x46 ('F')
-        0b11111110 ,
-        0b10010000 ,
-        0b10010000 ,
-        0b10000000 ,
-        0b10000000 ,
-    },
-
-    { //  ASCII 0x47 ('G')
-        0b01111100 ,
-        0b10000010 ,
-        0b10000010 ,
-        0b10001010 ,
-        0b01001100 ,
-    },
-
-    { //  ASCII 0x48 ('H')
-        0b11111110 ,
-        0b00010000 ,
-        0b00010000 ,
-        0b00010000 ,
-        0b11111110 ,
-    },
-
-    { //  ASCII 0x49 ('I')
-        0b00000000 ,
-        0b10000010 ,
-        0b11111110 ,
-        0b10000010 ,
-        0b00000000 ,
-    },
-
-    { //  ASCII 0x4a ('J')
-        0b00000100 ,
-        0b00000010 ,
-        0b10000010 ,
-        0b11111100 ,
-        0b10000000 ,
-    },
-
-    { //  ASCII 0x4b ('K')
-        0b11111110 ,
-        0b00010000 ,
-        0b00101000 ,
-        0b01000100 ,
-        0b10000010 ,
-    },
-
-    { //  ASCII 0x4c ('L')
-        0b11111110 ,
-        0b00000010 ,
-        0b00000010 ,
-        0b00000010 ,
-        0b00000010 ,
-    },
-
-    { //  ASCII 0x4d ('M')
-        0b11111110 ,
-        0b01000000 ,
-        0b00100000 ,
-        0b01000000 ,
-        0b11111110 ,
-    },
-
-    { //  ASCII 0x4e ('N')
-        0b11111110 ,
-        0b00100000 ,
-        0b00010000 ,
-        0b00001000 ,
-        0b11111110 ,
-    },
-
-    { //  ASCII 0x4f ('O')
-        0b01111100 ,
-        0b10000010 ,
-        0b10000010 ,
-        0b10000010 ,
-        0b01111100 ,
-    },
-
-    { //  ASCII 0x50 ('P')
-        0b11111110 ,
-        0b10010000 ,
-        0b10010000 ,
-        0b10010000 ,
-        0b01100000 ,
-    },
-
-    { //  ASCII 0x51 ('Q')
-        0b01111100 ,
-        0b10000010 ,
-        0b10001010 ,
-        0b10000100 ,
-        0b01111010 ,
-    },
-
-    { //  ASCII 0x52 ('R')
-        0b11111110 ,
-        0b10010000 ,
-        0b10011000 ,
-        0b10010100 ,
-        0b01100010 ,
-    },
-
-    { //  ASCII 0x53 ('S')
-        0b01100010 ,
-        0b10010010 ,
-        0b10010010 ,
-        0b10010010 ,
-        0b10001100 ,
-    },
-
-    { //  ASCII 0x54 ('T')
-        0b10000000 ,
-        0b10000000 ,
-        0b11111110 ,
-        0b10000000 ,
-        0b10000000 ,
-    },
-
-    { //  ASCII 0x55 ('U')
-        0b11111100 ,
-        0b00000010 ,
-        0b00000010 ,
-        0b00000010 ,
-        0b11111100 ,
-    },
-
-    { //  ASCII 0x56 ('V')
-        0b11111000 ,
-        0b00000100 ,
-        0b00000010 ,
-        0b00000100 ,
-        0b11111000 ,
-    },
-
-    { //  ASCII 0x57 ('W')
-        0b11111110 ,
-        0b00000100 ,
-        0b00011000 ,
-        0b00000100 ,
-        0b11111110 ,
-    },
-
-    { //  ASCII 0x58 ('X')
-        0b11000110 ,
-        0b00101000 ,
-        0b00010000 ,
-        0b00101000 ,
-        0b11000110 ,
-    },
-
-    { //  ASCII 0x59 ('Y')
-        0b11000000 ,
-        0b00100000 ,
-        0b00011110 ,
-        0b00100000 ,
-        0b11000000 ,
-    },
-
-    { //  ASCII 0x5a ('Z')
-        0b10000110 ,
-        0b10001010 ,
-        0b10010010 ,
-        0b10100010 ,
-        0b11000010 ,
-    },
-
-    { //  ASCII 0x5b ('[')
-        0b00000000 ,
-        0b00000000 ,
-        0b11111110 ,
-        0b10000010 ,
-        0b10000010 ,
-    },
-
-    { //  ASCII 0x5c ('\')
-        0b01000000 ,
-        0b00100000 ,
-        0b00010000 ,
-        0b00001000 ,
-        0b00000100 ,
-    },
-
-    { //  ASCII 0x5d (']')
-        0b10000010 ,
-        0b10000010 ,
-        0b11111110 ,
-        0b00000000 ,
-        0b00000000 ,
-    },
-
-    { //  ASCII 0x5e ('^')
-        0b00100000 ,
-        0b01000000 ,
-        0b10000000 ,
-        0b01000000 ,
-        0b00100000 ,
-    },
-
-    { //  ASCII 0x5f ('_')
-        0b00000010 ,
-        0b00000010 ,
-        0b00000010 ,
-        0b00000010 ,
-        0b00000010 ,
-    },
-
-    { //  ASCII 0x60 ('`')
-        0b00000000 ,
-        0b10000000 ,
-        0b01000000 ,
-        0b00100000 ,
-        0b00000000 ,
-    },
-
-    { //  ASCII 0x61 ('a')
-        0b00000100 ,
-        0b00101010 ,
-        0b00101010 ,
-        0b00101010 ,
-        0b00011110 ,
-    },
-
-    { //  ASCII 0x62 ('b')
-        0b11111110 ,
-        0b00010010 ,
-        0b00100010 ,
-        0b00100010 ,
-        0b00011100 ,
-    },
-
-    { //  ASCII 0x63 ('c')
-        0b00011100 ,
-        0b00100010 ,
-        0b00100010 ,
-        0b00100010 ,
-        0b00000100 ,
-    },
-
-    { //  ASCII 0x64 ('d')
-        0b00011100 ,
-        0b00100010 ,
-        0b00100010 ,
-        0b00010010 ,
-        0b11111110 ,
-    },
-
-    { //  ASCII 0x65 ('e')
-        0b00011100 ,
-        0b00101010 ,
-        0b00101010 ,
-        0b00101010 ,
-        0b00011000 ,
-    },
-
-    { //  ASCII 0x66 ('f')
-        0b00010000 ,
-        0b01111110 ,
-        0b10010000 ,
-        0b10000000 ,
-        0b01000000 ,
-    },
-
-    { //  ASCII 0x67 ('g')
-        0b00010000 ,
-        0b00101000 ,
-        0b00101010 ,
-        0b00101010 ,
-        0b00111100 ,
-    },
-
-    { //  ASCII 0x68 ('h')
-        0b11111110 ,
-        0b00010000 ,
-        0b00100000 ,
-        0b00100000 ,
-        0b00011110 ,
-    },
-
-    { //  ASCII 0x69 ('i')
-        0b00000000 ,
-        0b00100010 ,
-        0b10111110 ,
-        0b00000010 ,
-        0b00000000 ,
-    },
-
-    { //  ASCII 0x6a ('j')
-        0b00000100 ,
-        0b00000010 ,
-        0b00100010 ,
-        0b10111100 ,
-        0b00000000 ,
-    },
-
-    { //  ASCII 0x6b ('k')
-        0b00000000 ,
-        0b11111110 ,
-        0b00001000 ,
-        0b00010100 ,
-        0b00100010 ,
-    },
-
-    { //  ASCII 0x6c ('l')
-        0b00000000 ,
-        0b10000010 ,
-        0b11111110 ,
-        0b00000010 ,
-        0b00000000 ,
-    },
-
-    { //  ASCII 0x6d ('m')
-        0b00111110 ,
-        0b00100000 ,
-        0b00011000 ,
-        0b00100000 ,
-        0b00011110 ,
-    },
-
-    { //  ASCII 0x6e ('n')
-        0b00111110 ,
-        0b00010000 ,
-        0b00100000 ,
-        0b00100000 ,
-        0b00011110 ,
-    },
-
-    { //  ASCII 0x6f ('o')
-        0b00011100 ,
-        0b00100010 ,
-        0b00100010 ,
-        0b00100010 ,
-        0b00011100 ,
-    },
-
-    { //  ASCII 0x70 ('p')
-        0b00111110 ,
-        0b00101000 ,
-        0b00101000 ,
-        0b00101000 ,
-        0b00010000 ,
-    },
-
-    { //  ASCII 0x71 ('q')
-        0b00010000 ,
-        0b00101000 ,
-        0b00101000 ,
-        0b00011000 ,
-        0b00111110 ,
-    },
-
-    { //  ASCII 0x72 ('r')
-        0b00111110 ,
-        0b00010000 ,
-        0b00100000 ,
-        0b00100000 ,
-        0b00010000 ,
-    },
-
-    { //  ASCII 0x73 ('s')
-        0b00010010 ,
-        0b00101010 ,
-        0b00101010 ,
-        0b00101010 ,
-        0b00000100 ,
-    },
-
-    { //  ASCII 0x74 ('t')
-        0b00100000 ,
-        0b11111100 ,
-        0b00100010 ,
-        0b00000010 ,
-        0b00000100 ,
-    },
-
-    { //  ASCII 0x75 ('u')
-        0b00111100 ,
-        0b00000010 ,
-        0b00000010 ,
-        0b00000100 ,
-        0b00111110 ,
-    },
-
-    { //  ASCII 0x76 ('v')
-        0b00111000 ,
-        0b00000100 ,
-        0b00000010 ,
-        0b00000100 ,
-        0b00111000 ,
-    },
-
-    { //  ASCII 0x77 ('w')
-        0b00111100 ,
-        0b00000010 ,
-        0b00001100 ,
-        0b00000010 ,
-        0b00111100 ,
-    },
-
-    { //  ASCII 0x78 ('x')
-        0b00100010 ,
-        0b00010100 ,
-        0b00001000 ,
-        0b00010100 ,
-        0b00100010 ,
-    },
-
-    { //  ASCII 0x79 ('y')
-        0b00110000 ,
-        0b00001010 ,
-        0b00001010 ,
-        0b00001010 ,
-        0b00111100 ,
-    },
-
-    { //  ASCII 0x7a ('z')
-        0b00100010 ,
-        0b00100110 ,
-        0b00101010 ,
-        0b00110010 ,
-        0b00100010 ,
-    },
-
-    { //  ASCII 0x7b ('{')
-        0b00000000 ,
-        0b00010000 ,
-        0b01101100 ,
-        0b10000010 ,
-        0b00000000 ,
-    },
-
-    { //  ASCII 0x7c ('|')
-        0b00000000 ,
-        0b00000000 ,
-        0b11111110 ,
-        0b00000000 ,
-        0b00000000 ,
-    },
-
-    { //  ASCII 0x7d ('}')
-        0b00000000 ,
-        0b10000010 ,
-        0b01101100 ,
-        0b00010000 ,
-        0b00000000 ,
-    },
-
-    { //  ASCII 0x7e ('~')
-        0b00010000 ,
-        0b00010000 ,
-        0b01010100 ,
-        0b00111000 ,
-        0b00010000 ,
-    },
 
-    { //  ASCII 0x7f
-        0b00010000 ,
-        0b00111000 ,
-        0b01010100 ,
-        0b00010000 ,
-        0b00010000 ,
+    { // ASCII 0x20 (' ')
+       0b00000000,
+       0b00000000,
+       0b00000000,
+       0b00000000,
+       0b00000000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x21 ('!')
+       0b00000000,
+       0b00000000,
+       0b11111010,
+       0b00000000,
+       0b00000000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x22 ('"')
+       0b00000000,
+       0b11100000,
+       0b00000000,
+       0b11100000,
+       0b00000000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x23 ('#')
+       0b00101000,
+       0b11111110,
+       0b00101000,
+       0b11111110,
+       0b00101000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x24 ('$')
+       0b00100100,
+       0b01010100,
+       0b11111110,
+       0b01010100,
+       0b01001000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x25 ('%')
+       0b11000100,
+       0b11001000,
+       0b00010000,
+       0b00100110,
+       0b01000110,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x26 ('&')
+       0b01101100,
+       0b10010010,
+       0b10101010,
+       0b01000100,
+       0b00001010,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x27 (''')
+       0b00000000,
+       0b10100000,
+       0b11000000,
+       0b00000000,
+       0b00000000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x28 ('(')
+       0b00000000,
+       0b00111000,
+       0b01000100,
+       0b10000010,
+       0b00000000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x29 (')')
+       0b00000000,
+       0b10000010,
+       0b01000100,
+       0b00111000,
+       0b00000000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x2A ('*')
+       0b00010000,
+       0b01010100,
+       0b00111000,
+       0b01010100,
+       0b00010000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x2B ('+')
+       0b00010000,
+       0b00010000,
+       0b01111100,
+       0b00010000,
+       0b00010000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x2C (',')
+       0b00000000,
+       0b00001010,
+       0b00001100,
+       0b00000000,
+       0b00000000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x2D ('-')
+       0b00010000,
+       0b00010000,
+       0b00010000,
+       0b00010000,
+       0b00010000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x2E ('.')
+       0b00000000,
+       0b00000110,
+       0b00000110,
+       0b00000000,
+       0b00000000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x2F ('/')
+       0b00000100,
+       0b00001000,
+       0b00010000,
+       0b00100000,
+       0b01000000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x30 ('0')
+       0b01111100,
+       0b10001010,
+       0b10010010,
+       0b10100010,
+       0b01111100,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x31 ('1')
+       0b00000000,
+       0b01000010,
+       0b11111110,
+       0b00000010,
+       0b00000000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x32 ('2')
+       0b01000010,
+       0b10000110,
+       0b10001010,
+       0b10010010,
+       0b01100010,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x33 ('3')
+       0b10000100,
+       0b10000010,
+       0b10100010,
+       0b11010010,
+       0b10001100,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x34 ('4')
+       0b00011000,
+       0b00101000,
+       0b01001000,
+       0b11111110,
+       0b00001000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x35 ('5')
+       0b11100100,
+       0b10100010,
+       0b10100010,
+       0b10100010,
+       0b10011100,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x36 ('6')
+       0b00111100,
+       0b01010010,
+       0b10010010,
+       0b10010010,
+       0b00001100,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x37 ('7')
+       0b10000000,
+       0b10001110,
+       0b10010000,
+       0b10100000,
+       0b11000000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x38 ('8')
+       0b01101100,
+       0b10010010,
+       0b10010010,
+       0b10010010,
+       0b01101100,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x39 ('9')
+       0b01100000,
+       0b10010010,
+       0b10010010,
+       0b10010100,
+       0b01111000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x3A (':')
+       0b00000000,
+       0b01101100,
+       0b01101100,
+       0b00000000,
+       0b00000000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x3B (';')
+       0b00000000,
+       0b01101010,
+       0b01101100,
+       0b00000000,
+       0b00000000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x3C ('<')
+       0b00000000,
+       0b00010000,
+       0b00101000,
+       0b01000100,
+       0b10000010,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x3D ('=')
+       0b00101000,
+       0b00101000,
+       0b00101000,
+       0b00101000,
+       0b00101000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x3E ('>')
+       0b10000010,
+       0b01000100,
+       0b00101000,
+       0b00010000,
+       0b00000000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x3F ('?')
+       0b01000000,
+       0b10000000,
+       0b10001010,
+       0b10010000,
+       0b01100000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x40 ('@')
+       0b01001100,
+       0b10010010,
+       0b10011110,
+       0b10000010,
+       0b01111100,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x41 ('A')
+       0b01111110,
+       0b10001000,
+       0b10001000,
+       0b10001000,
+       0b01111110,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x42 ('B')
+       0b11111110,
+       0b10010010,
+       0b10010010,
+       0b10010010,
+       0b01101100,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x43 ('C')
+       0b01111100,
+       0b10000010,
+       0b10000010,
+       0b10000010,
+       0b01000100,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x44 ('D')
+       0b11111110,
+       0b10000010,
+       0b10000010,
+       0b01000100,
+       0b00111000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x45 ('E')
+       0b11111110,
+       0b10010010,
+       0b10010010,
+       0b10010010,
+       0b10000010,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x46 ('F')
+       0b11111110,
+       0b10010000,
+       0b10010000,
+       0b10000000,
+       0b10000000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x47 ('G')
+       0b01111100,
+       0b10000010,
+       0b10000010,
+       0b10001010,
+       0b01001100,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x48 ('H')
+       0b11111110,
+       0b00010000,
+       0b00010000,
+       0b00010000,
+       0b11111110,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x49 ('I')
+       0b00000000,
+       0b10000010,
+       0b11111110,
+       0b10000010,
+       0b00000000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x4A ('J')
+       0b00000100,
+       0b00000010,
+       0b10000010,
+       0b11111100,
+       0b10000000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x4B ('K')
+       0b11111110,
+       0b00010000,
+       0b00101000,
+       0b01000100,
+       0b10000010,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x4C ('L')
+       0b11111110,
+       0b00000010,
+       0b00000010,
+       0b00000010,
+       0b00000010,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x4D ('M')
+       0b11111110,
+       0b01000000,
+       0b00100000,
+       0b01000000,
+       0b11111110,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x4E ('N')
+       0b11111110,
+       0b00100000,
+       0b00010000,
+       0b00001000,
+       0b11111110,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x4F ('O')
+       0b01111100,
+       0b10000010,
+       0b10000010,
+       0b10000010,
+       0b01111100,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x50 ('P')
+       0b11111110,
+       0b10010000,
+       0b10010000,
+       0b10010000,
+       0b01100000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x51 ('Q')
+       0b01111100,
+       0b10000010,
+       0b10001010,
+       0b10000100,
+       0b01111010,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x52 ('R')
+       0b11111110,
+       0b10010000,
+       0b10011000,
+       0b10010100,
+       0b01100010,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x53 ('S')
+       0b01100010,
+       0b10010010,
+       0b10010010,
+       0b10010010,
+       0b10001100,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x54 ('T')
+       0b10000000,
+       0b10000000,
+       0b11111110,
+       0b10000000,
+       0b10000000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x55 ('U')
+       0b11111100,
+       0b00000010,
+       0b00000010,
+       0b00000010,
+       0b11111100,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x56 ('V')
+       0b11111000,
+       0b00000100,
+       0b00000010,
+       0b00000100,
+       0b11111000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x57 ('W')
+       0b11111110,
+       0b00000100,
+       0b00011000,
+       0b00000100,
+       0b11111110,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x58 ('X')
+       0b11000110,
+       0b00101000,
+       0b00010000,
+       0b00101000,
+       0b11000110,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x59 ('Y')
+       0b11000000,
+       0b00100000,
+       0b00011110,
+       0b00100000,
+       0b11000000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x5A ('Z')
+       0b10000110,
+       0b10001010,
+       0b10010010,
+       0b10100010,
+       0b11000010,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x5B ('[')
+       0b00000000,
+       0b00000000,
+       0b11111110,
+       0b10000010,
+       0b10000010,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x5C ('\')
+       0b01000000,
+       0b00100000,
+       0b00010000,
+       0b00001000,
+       0b00000100,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x5D (']')
+       0b10000010,
+       0b10000010,
+       0b11111110,
+       0b00000000,
+       0b00000000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x5E ('^')
+       0b00100000,
+       0b01000000,
+       0b10000000,
+       0b01000000,
+       0b00100000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x5F ('_')
+       0b00000010,
+       0b00000010,
+       0b00000010,
+       0b00000010,
+       0b00000010,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x60 ('`')
+       0b00000000,
+       0b10000000,
+       0b01000000,
+       0b00100000,
+       0b00000000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x61 ('a')
+       0b00000100,
+       0b00101010,
+       0b00101010,
+       0b00101010,
+       0b00011110,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x62 ('b')
+       0b11111110,
+       0b00010010,
+       0b00100010,
+       0b00100010,
+       0b00011100,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x63 ('c')
+       0b00011100,
+       0b00100010,
+       0b00100010,
+       0b00100010,
+       0b00000100,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x64 ('d')
+       0b00011100,
+       0b00100010,
+       0b00100010,
+       0b00010010,
+       0b11111110,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x65 ('e')
+       0b00011100,
+       0b00101010,
+       0b00101010,
+       0b00101010,
+       0b00011000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x66 ('f')
+       0b00010000,
+       0b01111110,
+       0b10010000,
+       0b10000000,
+       0b01000000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x67 ('g')
+       0b00010000,
+       0b00101000,
+       0b00101010,
+       0b00101010,
+       0b00111100,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x68 ('h')
+       0b11111110,
+       0b00010000,
+       0b00100000,
+       0b00100000,
+       0b00011110,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x69 ('i')
+       0b00000000,
+       0b00100010,
+       0b10111110,
+       0b00000010,
+       0b00000000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x6A ('j')
+       0b00000100,
+       0b00000010,
+       0b00100010,
+       0b10111100,
+       0b00000000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x6B ('k')
+       0b00000000,
+       0b11111110,
+       0b00001000,
+       0b00010100,
+       0b00100010,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x6C ('l')
+       0b00000000,
+       0b10000010,
+       0b11111110,
+       0b00000010,
+       0b00000000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x6D ('m')
+       0b00111110,
+       0b00100000,
+       0b00011000,
+       0b00100000,
+       0b00011110,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x6E ('n')
+       0b00111110,
+       0b00010000,
+       0b00100000,
+       0b00100000,
+       0b00011110,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x6F ('o')
+       0b00011100,
+       0b00100010,
+       0b00100010,
+       0b00100010,
+       0b00011100,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x70 ('p')
+       0b00111110,
+       0b00101000,
+       0b00101000,
+       0b00101000,
+       0b00010000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x71 ('q')
+       0b00010000,
+       0b00101000,
+       0b00101000,
+       0b00011000,
+       0b00111110,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x72 ('r')
+       0b00111110,
+       0b00010000,
+       0b00100000,
+       0b00100000,
+       0b00010000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x73 ('s')
+       0b00010010,
+       0b00101010,
+       0b00101010,
+       0b00101010,
+       0b00000100,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x74 ('t')
+       0b00100000,
+       0b11111100,
+       0b00100010,
+       0b00000010,
+       0b00000100,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x75 ('u')
+       0b00111100,
+       0b00000010,
+       0b00000010,
+       0b00000100,
+       0b00111110,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x76 ('v')
+       0b00111000,
+       0b00000100,
+       0b00000010,
+       0b00000100,
+       0b00111000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x77 ('w')
+       0b00111100,
+       0b00000010,
+       0b00001100,
+       0b00000010,
+       0b00111100,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x78 ('x')
+       0b00100010,
+       0b00010100,
+       0b00001000,
+       0b00010100,
+       0b00100010,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x79 ('y')
+       0b00110000,
+       0b00001010,
+       0b00001010,
+       0b00001010,
+       0b00111100,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x7A ('z')
+       0b00100010,
+       0b00100110,
+       0b00101010,
+       0b00110010,
+       0b00100010,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x7B ('{')
+       0b00000000,
+       0b00010000,
+       0b01101100,
+       0b10000010,
+       0b00000000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x7C ('|')
+       0b00000000,
+       0b00000000,
+       0b11111110,
+       0b00000000,
+       0b00000000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x7D ('}')
+       0b00000000,
+       0b10000010,
+       0b01101100,
+       0b00010000,
+       0b00000000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x7E ('~')
+       0b00010000,
+       0b00010000,
+       0b01010100,
+       0b00111000,
+       0b00010000,
+       0b00000000,  // Interchar space
+    },
+    { // ASCII 0x7F       0b00010000,
+       0b00111000,
+       0b01010100,
+       0b00010000,
+       0b00010000,
+       0b00000000,  // Interchar space
     },
 };
 
@@ -924,6 +925,7 @@ constexpr size_t size(T (&)[N]) { return N; }
    return ( c  >=  ASCII_OFFSET )  && ( c <=  ASCII_OFFSET + (char) size( fontdata ) ) ;
  }
 
+
 struct colorState_t {
   byte r;
   byte g;
@@ -932,16 +934,14 @@ struct colorState_t {
 
 struct displaystate_t {
   colorState_t colorState;  
-  unsigned frametime_ms;      // Minium time each frame is displayed
 };
-
 
 // Default initial displayState
 
-static const displaystate_t initial_displaystate =  {
+static displaystate_t initial_displaystate =  {
   { 0x00 , 0x40 , 0x00 } ,        // Nice blue
-  30                              // Slow scroll
 };
+
 
 // Current display state. Global variable for efficiency.
 // Note that we retain these values so command changes are sticky 
@@ -995,161 +995,6 @@ byte processCommand( const char *s) {
   
 }
 
-// Show the passed string starting at the requested pixel column
-// If you run out of string before you run out of display, the rest of the display will be blank. 
-// Column 0 is the leftmost pixel column of the display, so calling with start_col = ...
-// 0 will display as much of the begining string as will fit on the display, starting with the first char. 
-// 1 will show the string shifted one column to the right (the leftmost column will be blank)
-// -10 will skip the first 10 coulumns of the string and the 11th column of the string will be in the leftmost column of the display
-
-void drawString( const char *s , int start_col ) {
-
-  displaystate = initial_displaystate;    // Always start with the initial display state
-
-  int pixel_col=0; // How many pixels left to fill in the display? (We always fill the entire display)
-
-  // Each pass though this loop we send one column of pixels to the display
-  // Pixels fill from left side to right side, so the first thing we send is the leftmost visible column
-
-  byte char_col_count=0;            // How many cols of current chardo we have left to sennd? 0=done with current char.
-  const byte *char_col_ptr=NULL;    // Cache the next column of pixels of the current char to send. Only valid if char_col_count > 0
-
-  // First shift everything right if start_col > 0
-
-  while ( pixel_col < start_col ) {
-      sendCol( 0  );    // All pixels in column off
-      pixel_col++;
-  }
-
-  while ( pixel_col < PIXEL_COUNT ) {
-
-    if (char_col_count) { 
-
-      // We are currently sending a char so send next column of pixels (if we are on the display yet) 
-      if ( start_col < 0 ) {
-        // Still using up the leading negative start_col offset that was passed into drawString(), so do not actually send any data
-        start_col++;
-      } else {
-        sendCol( pgm_read_byte_near( char_col_ptr++ ));   // Actually send the data to the display
-        pixel_col++;                                      // ...and count the pixel coulmn used up
-      }
-
-      char_col_count--;
-
-      if (char_col_count == 0 ) {
-        // We reached the end of the current char, so add interchar space
-
-        char_col_count = INTERCHAR_SPACE;
-
-        while ( char_col_count && pixel_col < PIXEL_COUNT ) {
-
-          if ( start_col < 0 ) {
-            // Still using up the leading negative start_col offset that was passed into drawString(), so do not actually send any data
-            start_col++;        
-          } else {
-            sendCol( 0 );       // Actually send the data (space) to the display
-            pixel_col++;      // ...and count the pixel coulmn used up
-          }
-
-          char_col_count--;
-
-        }
-      }
-      
-    } else if ( *s ) {
-
-      // If we get here, we are not currently sending a char and there are more chars left in the strring.
-
-      // First check if it is a command...
-
-      byte processedCommandRet = processCommand(s);
-
-      if ( processedCommandRet ) {
-
-        // Command successfully processed, so skip it
-        s+=processedCommandRet;    
-          
-      } else {
-
-        // Not a command, so a char.
-
-        const char c = *s;
-
-        if ( isCharInFont( c ) )  {   // Check that we have a font entry for this char
-
-          // A valid char we can send to the display
-
-          char_col_ptr = &(fontdata[ c - ASCII_OFFSET ][0]) ;    // The font pixels for the current char
-          char_col_count = FONT_WIDTH;
-
-        }
-
-        // Here we skip the char even if it was not valid so we don't get stuck
-        s++;
-
-      }
-
-    } else {
-
-      // If we got here then we ran out of string to send, so fill the rest of the display with blank columns
-      sendCol( 0  );    // All pixels in column off
-      pixel_col++;
-    }
-  }
-
-
-  show();
-  
-}
-
-// How many pixels long will this string be when displayed?
-
-unsigned getStringWidth(const char *s) {
-
-  unsigned len = 0;
-
-  while (*s) {
-
-    byte retVal = processCommand(s);
-
-    if (retVal) {
-
-      s += retVal;
-
-    } else {
-
-      if (  isCharInFont( *s )  ) {   // Check that we have a font entry for this char
-        len += FONT_WIDTH + INTERCHAR_SPACE;
-      }
-
-      s++;
-
-    }
-
-  }
-
-  return len;
-
-}
-
-// Scroll this string across the LEDs.
-
-void scrollString( const char *s ) {
-
-  int pixel_len = -1 * getStringWidth( s );
-
-  for( int step= PIXEL_COUNT  ; step >  pixel_len ; step-- ) {   // step though each column of the 1st char for smooth scrolling
-
-    unsigned long startframe_ms = millis();
-    drawString( s , step  );    // Nice and not-too-bright blue hue         
-    
-    unsigned long endframe_ms = startframe_ms + displaystate.frametime_ms;
-
-    while (millis() < endframe_ms);
-  }
-  
-}
-
 
 // Here we define stuff to recieve the serial data. I guess we could have used the Arduino Serial class
 // here, but that code is more general, whereas we know exactly what we need to do so can get right to the point.
@@ -1157,16 +1002,16 @@ void scrollString( const char *s ) {
 
 // Must be big enough to hold serial data coming in while we are showing a messgae on the LEDs
 
-#define SERIAL_RX_BUFFER_LEN 500
+#define BUFFER_LEN 500
 
-byte serial_rx_buffer[ SERIAL_RX_BUFFER_LEN ];
+byte buffer[ BUFFER_LEN ];
 
-unsigned volatile serial_rx_buffer_head = 0;       // Newly recieved bytes go here
-unsigned volatile serial_rx_buffer_tail = 0;       // Past end of LEDs
+unsigned volatile buffer_head = 0;       // Newly recieved bytes go here
+unsigned volatile buffer_tail = 0;       // Points to the first currently displayed char
 
 // Increment the specified pointer with wrap
 
-#define SERIAL_RX_BUFFER_INC_PTR(x) ( (x==(SERIAL_RX_BUFFER_LEN-1) )? 0 : x+1 )
+#define BUFFER_INC_PTR(x) ( (x==(BUFFER_LEN-1) )? 0 : x+1 )
 
 // Interrupt handler, fired whenever a byte comes in on the RX pin. 
 // We grab the byte and Stick it in our buffer (if we have room for it)
@@ -1175,11 +1020,11 @@ ISR(USART_RX_vect) {
 
   byte b = UDR0;      // Get newly recieved byte from the USART
 
-  unsigned new_head = SERIAL_RX_BUFFER_INC_PTR(serial_rx_buffer_head);        // Compute the new head after this char
+  unsigned new_head = BUFFER_INC_PTR(buffer_head);        // Compute the new head after this char
 
-  if (new_head != serial_rx_buffer_tail)  {             // Room for another char? 
-      serial_rx_buffer[serial_rx_buffer_head] = b;
-      serial_rx_buffer_head = new_head;
+  if (new_head != buffer_tail)  {             // Room for another char? 
+      buffer[buffer_head] = b;
+      buffer_head = new_head;
   }
 }
 
@@ -1191,6 +1036,65 @@ void init_serial() {
   UCSR0B |= 1 << RXCIE0;  // Enable recieve complete interrupt
 }
 
+
+// Send a full batch of data out to the LEDs
+// Starts at buffer_start and keeps sending until all the LEDs are updated.
+
+// shift is the col of the current char to start at. By shifting though we can smooth scrool it across the width of the char. 
+// when shift=0 that means start at col 0, which means send the full char width.
+
+// Note that we assume there are enough chars in the buffer to fill the display. If not, we will overrrun head which
+// is safe might just look ugly. It is up to whoever updates the tail pointer to keep enough chars in the buffer to avoid ths. 
+
+// Returns the location in the buffer just past the last byte on the display. 
+
+// TODO: Return if we hit the end of the char to allow variable width fonts. 
+
+
+unsigned updateLEDs( byte shift ) {
+
+  unsigned pixel_count = PIXEL_COUNT;  // Fill all the LED pixels. NOte it is actually ok to send too many pixels, just would be slower
+
+  unsigned buffer_edge = buffer_tail;    // Start walking buffer_edge to the end of the string starting from tail (this is the letter we are currently sending)
+
+  while (pixel_count) {
+
+    if ( buffer_edge != buffer_head ) {    // Anything left in buffer to display?
+    
+      // send the current columm of the current letter 
+  
+      const byte c = buffer[buffer_edge];
+  
+      sendCol( pgm_read_byte_near( &(fontdata[ c - ASCII_OFFSET ][shift])) );    // Send next col of bits to LEDs. pgm_read stuff is becuase fontdata is PROGMEM.
+      shift++;
+
+      if ( shift>= FONT_WIDTH) {            // Have we finished sending the current char?
+        
+        buffer_edge=BUFFER_INC_PTR(buffer_edge);   // Move to next char in the buffer
+        shift = 0;                                 // Start at the begining of it
+        
+      }
+      
+              
+    } else {
+  
+      // Blank out any remaining pixels at the end of the display
+      // This only happens when we first start up and there is not enough message in the buffer to fill the dispay
+  
+        sendCol( 0  );    // All pixels in column off
+    }
+
+    pixel_count--;    
+
+  }
+
+  // Latch everything we just sent into the pixels so it is actually displayed
+  show();
+
+  return buffer_edge;
+}
+
+
 void setup() {
   PIXEL_DDR |= onBits;         // Set used pins to output mode
 
@@ -1201,35 +1105,52 @@ void setup() {
   delay( 1000);
 
   init_serial();
+
+  memset(buffer,sizeof(buffer), '.');   /// Fill the buffer with spaces so that the LEDs are initially filled with blanks until some serial data comes in
+
+  updateLEDs( 0 );    // Clear the display on startup. 
+
+  // Add some test data
+
+  buffer[buffer_head++]='J';
+  buffer[buffer_head++]='o';
+  buffer[buffer_head++]='s';
+  buffer[buffer_head++]='h';
   
 }
 
 
-void loop() {
-
-  if ( serial_rx_buffer_head != serial_rx_buffer_tail ) {
 
 
-    // There is serial data to display
-    x[0] = serial_rx_buffer[serial_rx_buffer_tail];
-    serial_rx_buffer_tail = SERIAL_RX_BUFFER_INC_PTR( serial_rx_buffer_tail );
-    scrollString( x );
-  } else {
+void loop() {  
 
-  }
+  unsigned buffer_edge = updateLEDs( 0 );    // Draw the display, see if there is any data beyond the display currently 
 
+/*
+  if (buffer_edge != buffer_head )  {
 
+    // The head is beyond the edge, so there is now data past the right edge of the display,
+    // we should scroll left to bring some 1 char of thatr new data onto the display
+
+    // Shift the leftmost char (at tail) off the display to make room on the right
+
+    for( byte shift = 1; shift < FONT_WIDTH ; shift++ ) {
   
-  while (1) {
-    //scrollString(  "   " );
+      buffer_edge = updateLEDs( shift );
+      _delay_ms(100);
+  
+    }
 
-    scrollString(  "hello josh is #440000very#000040 nice and I like him." );
-    delay(1000);
-
-    scrollString(  "this is a  #440000test#000040 of the #004400system#000040." );
-    delay(1000);
-
+    // Move the tail forward one byte so next pass will will be showing that char in step 0
+    buffer_tail = BUFFER_INC_PTR( buffer_tail );      
+      
   }
-  while (1); 
 
+  if (millis() > 2000) {
+    buffer[buffer_head++]='u';
+    buffer[buffer_head++]='a';    
+  }
+*/
 }
+
+ 
