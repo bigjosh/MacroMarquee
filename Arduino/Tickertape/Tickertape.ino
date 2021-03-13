@@ -3,132 +3,17 @@
 
 // Change this to be at least as long as your pixel string (too long will work fine, just be a little slower)
 
-#define PIXEL_COUNT 60  // Number of pixels in the string. I am using 4 meters of 96LED/M
-
-// These values depend on which pins your 8 strings are connected to and what board you are using 
-// More info on how to find these at http://www.arduino.cc/en/Reference/PortManipulation
-
-// PORTD controls Digital Pins 0-7 on the Uno
-
-// You'll need to look up the port/bit combination for other boards. 
-
-// Note that you could also include the DigitalWriteFast header file to not need to to this lookup.
-
-#define PIXEL_PORT  PORTD  // Port of the pin the pixels are connected to
-#define PIXEL_DDR   DDRD   // Port of the pin the pixels are connected to
+#define PIXEL_COUNT 60  // Length of the strings in pixels. I am using a 1 meter long strings that have 60 LEDs per meter. 
 
 
-static const byte onBits=0b11111110;   // Bit pattern to write to port to turn on all pins connected to LED strips. 
+
+
+static const byte onBits=0b11111110;      // Bit pattern to write to port to turn on all pins connected to LED strips. 
                                           // If you do not want to use all 8 pins, you can mask off the ones you don't want
                                           // Note that these will still get 0 written to them when we send pixels
                                           // TODO: If we have time, we could even add a variable that will and/or into the bits before writing to the port to support any combination of bits/values                                  
 
-
-#define RES_NS 500000   // Width of the low gap between bits to cause a frame to latch, from the WS2812B datasheets (recently increased to 50us for newer chips)
-
-
-
-// Sends a full 8 bits down all the pins, represening a single color of 1 pixel
-// We walk though the 8 bits in colorbyte one at a time. If the bit is 1 then we send the 8 bits of row out. Otherwise we send 0. 
-// We send onBits at the first phase of the signal generation. We could just send 0xff, but that mught enable pull-ups on pins that we are not using. 
-
-/// Unforntunately we have to drop to ASM for this so we can interleave the computaions durring the delays, otherwise things get too slow.
-
-// OnBits is the mask of which bits are connected to strips. We pass it on so that we
-// do not turn on unused pins becuase this would enable the pullup. Also, hopefully passing this
-// will cause the compiler to allocate a Register for it and avoid a reload every pass.
-
-static inline void sendBitx8(  const byte row , const byte colorbyte , const byte onBits ) {  
-              
-    asm volatile (
-
-
-      "L_%=: \n\r"  
-
-            
-      "cli \n\t"                                   //              Turn off interrupts to make sure we meet the T0H deadline. 
-      "out %[port], %[onBits] \n\t"                 //              Send either T0H or the first part of T1H. Onbits is a mask of which bits have strings attached.
-
-      // Next determine if we are going to be sending 1s or 0s based on the current bit in the color....
-      "mov r0, %[bitwalker] \n\t"                   // (1 cycles)  - Get ready to check if we should send all zeros      
-      "and r0, %[colorbyte] \n\t"                   // (1 cycles)  - is the current bit in the color byte set?
-      "breq OFF_%= \n\t"                            // (1 cycles) - bit in color is 0, then send full zero row (takes 2 cycles if branch taken, count the extra 1 on the target line)
-
-      "nop \n\t \n\t "                             // (1 cycles) - Balances out the extra cycle on the other path
-      
-      // If we get here, then we want to send a 1 for every row that has an ON dot...
-      // So if there is a 1 in [row] then the output will still high, otherwise it will go low
-      // making a short zero bit signal. 
-      "out %[port], %[row]   \n\t"                  // (1 cycles) - set the output bits to [row] This is phase for T0H-T1H.
-                                                    // ==========
-                                                    // (5 cycles) - T0H (Phase #1) 4 cycles / 16Mhz = 310 nanoseconds. We should be able to get by with 200ns, but I found a WS2813 that says 300ns. 
-
-      "sei \n\t"                                    // (1 cycles) OK to reenable interrupt now - T0H is the only timing sensitive phase https://wp.josh.com/2014/05/13/ws2812-neopixels-are-not-so-finicky-once-you-get-to-know-them/
-                                                    
-              
-      "jmp NEXT_%= \n\t"                              // (3 cycles) 
-                                                   // (1 cycles) - The OUT on the next pass of the loop
-                                                   // ==========
-                                                   // (7 cycles) - T1L
-                                                   
-                                                          
-      "OFF_%=: \n\r"                                // (1 cycles)    Note that we land here becuase of breq, which takes takes 2 cycles
-
-      "out %[port], __zero_reg__ \n\t"              // (1 cycles) - set the output bits to 0x00 based on the bit in colorbyte. This is phase for T0H-T1H
-                                                    // ==========
-                                                    // (4 cycles) - T0H
-                                                    
-      "sei \n\t"                                    // (1 cycles) OK to reenable interrupt now - T0H is the only timing sensitive phase https://wp.josh.com/2014/05/13/ws2812-neopixels-are-not-so-finicky-once-you-get-to-know-them/
-
-      "nop \n\t \n\t "                             // (1 cycles) - Balances out the extra cycle on the other path
-                  
-      "NEXT_%=: \n\t"
-
-      "nop \n\t nop \n\t "                          // (2 cycles) 
-
-      "out %[port], __zero_reg__ \n\t"              // (1 cycles) - set the output bits to 0x00 based on the bit in colorbyte. This is phase for T0H-T1H
-                                                    // ==========
-                                                    // (9 cycles) - T1H (Phase #2 ) 9 cycles / 16Mhz = 560ns      
-
-      // OK we are done sending this set of bits. Now we need a bit of space for time between bits (T1L 600ns) 
-
-      "nop \n\t nop \n\t "                          // (2 cycles) 
-      "nop \n\t nop \n\t "                          // (2 cycles)      
-      "nop \n\t nop \n\t "                          // (2 cycles)      
-
-      "nop \n\t nop \n\t "                          // (2 cycles)      
-      "nop \n\t nop \n\t "                          // (2 cycles)      
-
-      "ror %[bitwalker] \n\t"                      // (1 cycles) - get ready for next pass. On last pass, the bit will end up in C flag
-                  
-      "brcc L_%= \n\t"                             // (1 cycles) Exit if carry bit is set as a result of us walking all 8 bits. We assume that the process around us will takw long enough to cover the phase 3 delay
-
-                                                   // Above is at least 9 cycles including either the return + next call , or the brcc branch + cli at top
-          
-      ::
-      [port]    "I" (_SFR_IO_ADDR(PIXEL_PORT)),
-      [row]   "d" (row),
-      [onBits]   "d" (onBits),
-      [colorbyte]   "d" (colorbyte ),     // Phase 2 of the signal where the actual data bits show up.                
-      [bitwalker] "r" (0x80)                      // Alocate a register to hold a bit that we will walk down though the color byte
-
-    );
-                                  
-    // Note that the inter-bit gap can be as long as you want as long as it doesn't exceed the reset timeout (which is A long time)
-    
-} 
-
-
-
-
-// Just wait long enough without sending any bits to cause the pixels to latch and display the last sent frame
-
-void show() {
-  delayMicroseconds( (RES_NS / 1000UL) + 1);       // Round up since the delay must be _at_least_ this long (too short might not work, too long not a problem)
-}
-
-
-
+/*------------------- FONT CUT TOP HERE -------------------------------*/
 
 // This nice 5x7 font from here...
 // http://sunge.awardspace.com/glcd-sd/node4.html
@@ -139,7 +24,7 @@ void show() {
 // 3) Columns are left to right order, leftmost byte is leftmost column of pixels.
 // 4) Each column is 8 bits high.
 // 5) Bit #7 is top line of char, Bit #1 is bottom.
-// 6) Bit #0 is always 0, becuase this pin is used as serial input and setting to 1 would enable the pull-up.
+// 6) Bit #0 is always 0 so that the RX pin can be used for serial input.
 
 // defines ascii characters 0x20-0x7F (32-127)
 // PROGMEM after variable name as per https://www.arduino.cc/en/Reference/PROGMEM
@@ -918,11 +803,122 @@ const byte fontdata[][FONT_WIDTH] PROGMEM = {
     },
 };
 
+
+/*------------------- FONT CUT BOTTOM HERE -------------------------------*/
+
+
+// The hard part of actually sending data out the strings is below. 
+
+#define RES_NS 500000   // Width of the low gap between bits to cause a frame to latch, from the WS2812B datasheets (recently increased to 50us for newer chips)
+
+#define PIXEL_PORT  PORTD  // Port of the pins the pixels are connected to
+#define PIXEL_DDR   DDRD   // Port of the pins the pixels are connected to
+
+// Sends a full 8 bits down all the pins, represening a single color of 1 pixel
+// We walk though the 8 bits in colorbyte one at a time. If the bit is 1 then we send the 8 bits of row out. Otherwise we send 0. 
+// We send onBits at the first phase of the signal generation. We could just send 0xff, but that mught enable pull-ups on pins that we are not using. 
+
+/// Unforntunately we have to drop to ASM for this so we can interleave the computaions durring the delays, otherwise things get too slow.
+
+// OnBits is the mask of which bits are connected to strips. We pass it on so that we
+// do not turn on unused pins becuase this would enable the pullup. Also, hopefully passing this
+// will cause the compiler to allocate a Register for it and avoid a reload every pass.
+
+static inline void sendBitx8(  const byte row , const byte colorbyte , const byte onBits ) {  
+              
+    asm volatile (
+
+
+      "L_%=: \n\r"  
+
+            
+      "cli \n\t"                                   //              Turn off interrupts to make sure we meet the T0H deadline. 
+      "out %[port], %[onBits] \n\t"                 //              Send either T0H or the first part of T1H. Onbits is a mask of which bits have strings attached.
+
+      // Next determine if we are going to be sending 1s or 0s based on the current bit in the color....
+      "mov r0, %[bitwalker] \n\t"                   // (1 cycles)  - Get ready to check if we should send all zeros      
+      "and r0, %[colorbyte] \n\t"                   // (1 cycles)  - is the current bit in the color byte set?
+      "breq OFF_%= \n\t"                            // (1 cycles) - bit in color is 0, then send full zero row (takes 2 cycles if branch taken, count the extra 1 on the target line)
+
+      "nop \n\t \n\t "                             // (1 cycles) - Balances out the extra cycle on the other path
+      
+      // If we get here, then we want to send a 1 for every row that has an ON dot...
+      // So if there is a 1 in [row] then the output will still high, otherwise it will go low
+      // making a short zero bit signal. 
+      "out %[port], %[row]   \n\t"                  // (1 cycles) - set the output bits to [row] This is phase for T0H-T1H.
+                                                    // ==========
+                                                    // (5 cycles) - T0H (Phase #1) 4 cycles / 16Mhz = 310 nanoseconds. We should be able to get by with 200ns, but I found a WS2813 that says 300ns. 
+
+      "sei \n\t"                                    // (1 cycles) OK to reenable interrupt now - T0H is the only timing sensitive phase https://wp.josh.com/2014/05/13/ws2812-neopixels-are-not-so-finicky-once-you-get-to-know-them/
+                                                    
+              
+      "jmp NEXT_%= \n\t"                              // (3 cycles) 
+                                                   // (1 cycles) - The OUT on the next pass of the loop
+                                                   // ==========
+                                                   // (7 cycles) - T1L
+                                                   
+                                                          
+      "OFF_%=: \n\r"                                // (1 cycles)    Note that we land here becuase of breq, which takes takes 2 cycles
+
+      "out %[port], __zero_reg__ \n\t"              // (1 cycles) - set the output bits to 0x00 based on the bit in colorbyte. This is phase for T0H-T1H
+                                                    // ==========
+                                                    // (4 cycles) - T0H
+                                                    
+      "sei \n\t"                                    // (1 cycles) OK to reenable interrupt now - T0H is the only timing sensitive phase https://wp.josh.com/2014/05/13/ws2812-neopixels-are-not-so-finicky-once-you-get-to-know-them/
+
+      "nop \n\t \n\t "                             // (1 cycles) - Balances out the extra cycle on the other path
+                  
+      "NEXT_%=: \n\t"
+
+      "nop \n\t nop \n\t "                          // (2 cycles) 
+
+      "out %[port], __zero_reg__ \n\t"              // (1 cycles) - set the output bits to 0x00 based on the bit in colorbyte. This is phase for T0H-T1H
+                                                    // ==========
+                                                    // (9 cycles) - T1H (Phase #2 ) 9 cycles / 16Mhz = 560ns      
+
+      // OK we are done sending this set of bits. Now we need a bit of space for time between bits (T1L 600ns) 
+
+      "nop \n\t nop \n\t "                          // (2 cycles) 
+      "nop \n\t nop \n\t "                          // (2 cycles)      
+      "nop \n\t nop \n\t "                          // (2 cycles)      
+
+      "nop \n\t nop \n\t "                          // (2 cycles)      
+      "nop \n\t nop \n\t "                          // (2 cycles)      
+
+      "ror %[bitwalker] \n\t"                      // (1 cycles) - get ready for next pass. On last pass, the bit will end up in C flag
+                  
+      "brcc L_%= \n\t"                             // (1 cycles) Exit if carry bit is set as a result of us walking all 8 bits. We assume that the process around us will takw long enough to cover the phase 3 delay
+
+                                                   // Above is at least 9 cycles including either the return + next call , or the brcc branch + cli at top
+          
+      ::
+      [port]    "I" (_SFR_IO_ADDR(PIXEL_PORT)),
+      [row]   "d" (row),
+      [onBits]   "d" (onBits),
+      [colorbyte]   "d" (colorbyte ),     // Phase 2 of the signal where the actual data bits show up.                
+      [bitwalker] "r" (0x80)                      // Alocate a register to hold a bit that we will walk down though the color byte
+
+    );
+                                  
+    // Note that the inter-bit gap can be as long as you want as long as it doesn't exceed the reset timeout (which is a long time)
+    
+} 
+
+
+
+
+// Just wait long enough without sending any bits to cause the pixels to latch and display the last sent frame
+
+void show() {
+  delayMicroseconds( (RES_NS / 1000UL) + 1);       // Round up since the delay must be _at_least_ this long (too short might not work, too long not a problem)
+}
+
+
 // Size of array from https://stackoverflow.com/a/18078435/3152071
 template<class T, size_t N>
 constexpr size_t size(T (&)[N]) { return N; }
 
-// Is this char in the given font? 
+// Test if a char in the given font? 
 
  byte isCharInFont(const char c) {
    return ( c  >=  ASCII_OFFSET )  && ( c <=  ASCII_OFFSET + (char) size( fontdata ) ) ;
@@ -974,22 +970,6 @@ byte parse2hexdigits( const char *s ) {
   return (parsehexdigit( s[0] ) << 4 ) + parsehexdigit( s[1] );
 }
 
-
-
-
-#define TICKER_BUFFER_SIZE 500    
-
-byte tickerbuffer[TICKER_BUFFER_SIZE];
-
-// Head is updated whenever new chars are recieved
-
-unsigned tickerbuffer_head=0;       // Points past the most recently recieved char
-
-// Varibales below are updated by sendFrame()
-
-unsigned tickerbuffer_tail=0;       // Points before the oldest recieved char
-unsigned tickerbuffer_edge=0;       // Points past the rightmost char on the LED display. Note the edg char might only be partial displayed if step != 0
-unsigned tickerbuffer_step=0;       // How many pixels into the rightmost displayed char are we? (we scroll 1 pixel rather than 1 char at a time for smoothness)
 
 // Check if *s is a valid command string and process the command if it is. 
 // returns the legth of the command processed.
@@ -1152,6 +1132,8 @@ unsigned getStringWidth(const char *s) {
 
 }
 
+// Scroll this string across the LEDs.
+
 void scrollString( const char *s ) {
 
   int pixel_len = -1 * getStringWidth( s );
@@ -1168,17 +1150,26 @@ void scrollString( const char *s ) {
   
 }
 
-#define SERIAL_RX_BUFFER_LEN 200
+
+// Here we define stuff to recieve the serial data. I guess we could have used the Arduino Serial class
+// here, but that code is more general, whereas we know exactly what we need to do so can get right to the point.
+// Also we do not want to turn on the TX pin since we might be using that for LEDs. 
+
+// Must be big enough to hold serial data coming in while we are showing a messgae on the LEDs
+
+#define SERIAL_RX_BUFFER_LEN 500
 
 byte serial_rx_buffer[ SERIAL_RX_BUFFER_LEN ];
 
 unsigned volatile serial_rx_buffer_head = 0;       // Newly recieved bytes go here
-unsigned serial_rx_buffer_show = 0;                // We will display to the LEDs starting here 
 unsigned volatile serial_rx_buffer_tail = 0;       // Past end of LEDs
 
 // Increment the specified pointer with wrap
 
 #define SERIAL_RX_BUFFER_INC_PTR(x) ( (x==(SERIAL_RX_BUFFER_LEN-1) )? 0 : x+1 )
+
+// Interrupt handler, fired whenever a byte comes in on the RX pin. 
+// We grab the byte and Stick it in our buffer (if we have room for it)
 
 ISR(USART_RX_vect) {
 
@@ -1213,113 +1204,21 @@ void setup() {
   
 }
 
-static char jabberText[] = 
-      "                                       " 
-      "Twas brillig, and the slithy toves "
-            "Did gyre and gimble in the wabe: "
-      "All mimsy were the borogoves, "
-            "And the mome raths outgrabe. "
-      
-      "Beware the Jabberwock, my son! "
-            "The jaws that bite, the claws that catch! "
-      "Beware the Jubjub bird, and shun "      
-            "The frumious Bandersnatch! "
-      
-      "He took his vorpal sword in hand; "
-            "Long time the manxome foe he sought- "
-      "So rested he by the Tumtum tree "
-            "And stood awhile in thought. "
-      
-      "And, as in uffish thought he stood, "
-            "The Jabberwock, with eyes of flame, "
-      "Came whiffling through the tulgey wood, "      
-            "And burbled as it came! "
-      
-      "One, two! One, two! And through and through "
-            "The vorpal blade went snicker-snack! "
-      "He left it dead, and with its head "
-            "He went galumphing back. "
-      
-      "And hast thou slain the Jabberwock? "
-            "Come to my arms, my beamish boy! "
-      "O frabjous day! Callooh! Callay! "
-            "He chortled in his joy. "
-      
-      "Twas brillig, and the slithy toves "
-            "Did gyre and gimble in the wabe: "
-      "All mimsy were the borogoves, "
-            "And the mome raths outgrabe."  
-      
-      ;
-
 
 void loop() {
 
-  pinMode(LED_BUILTIN, OUTPUT);
+  if ( serial_rx_buffer_head != serial_rx_buffer_tail ) {
 
-  while (1) {
 
-    char x[]=" ";
-
-    if ( serial_rx_buffer_head != serial_rx_buffer_tail ) {
-      x[0] = serial_rx_buffer[serial_rx_buffer_tail];
-      serial_rx_buffer_tail = SERIAL_RX_BUFFER_INC_PTR( serial_rx_buffer_tail );
-      scrollString( x );
-      digitalWrite(LED_BUILTIN, HIGH);
-    } else {
-      digitalWrite(LED_BUILTIN, LOW);
-
-    }
-
+    // There is serial data to display
+    x[0] = serial_rx_buffer[serial_rx_buffer_tail];
+    serial_rx_buffer_tail = SERIAL_RX_BUFFER_INC_PTR( serial_rx_buffer_tail );
+    scrollString( x );
+  } else {
 
   }
 
 
-  while (1) {
-
-
-      String i = Serial.readString();
-
-      scrollString(  "X" );
-
-      char a[20];
-
-      i.toCharArray( a , 20 );
-
-      scrollString(  a );
-
-      //scrollString(  "hello josh is #440000very#000040 nice and I like him." );
-
-      //scrollString(  "this is a  #440000test#000040 of the #004400system#000040." );
-
-  }  
-
-  //sendString( "josh is very nice and I like him." , 0 , 0x00, 0x00 , 0x42 );    // Nice and not-too-bright blue hue         
-
-  drawString(  "hello josh is #440000very#000040 nice and I like him."  , 0 ) ;
-  delay(3000);
-
-  drawString( "a #000020BLUE#002200 b" , 10 );
-  delay(3000);
-
-  drawString( "ten" , 10 );
-  delay(3000);
-  drawString( "negative 10" , -10);
-  delay(3000);
-  drawString( "fifty" , 50);
-  delay(3000);
-
-  for(int i=0; i<10;i++) {
-    drawString( "||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||" , 0 );
-    delay(1000);
-    drawString( "||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||" , 1 );
-    delay(1000);
-  }
-
-  return;
-
-
-  int x=-10;
   
   while (1) {
     //scrollString(  "   " );
@@ -1332,6 +1231,5 @@ void loop() {
 
   }
   while (1); 
-  scrollString( jabberText );
 
 }

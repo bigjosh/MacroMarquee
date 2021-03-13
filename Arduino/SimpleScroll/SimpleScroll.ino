@@ -991,10 +991,13 @@ template<class T, size_t N>
 constexpr size_t size(T (&)[N]) { return N; }
 
 
-// Show the passed string starting at the requested pixel column of the string in the leftmost col of the LED display
-// Not that start_col can be negative
+// Show the passed string starting at the requested pixel column of the string in the rightmost col of the LED display.
+// So if you draw a string with start_col=0, then the first col of the first letter will be in the rightmost col of the display
+// and the rest will be blank. 
 
-void sendString( const char *s , int start_col ) {
+// To show the string starting at the leftmost col of the display, use drawString( s , PIXEL_COUNT );
+
+void drawString( const char *s , int start_col ) {
 
   unsigned int l=PIXEL_COUNT; // L is the col we are currently sending to the LEDs. Note we do not start sending to the LEDs until we get to start_col 
 
@@ -1165,3 +1168,5 @@ void loop() {
   scrollString( jabberText );
 
 }
+
+
