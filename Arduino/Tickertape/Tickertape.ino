@@ -3,7 +3,7 @@
 
 // Change this to be at least as long as your pixel string (too long will work fine, just be a little slower)
 
-#define PIXEL_COUNT 58  // Length of the strings in pixels. I am using a 1 meter long strings that have 60 LEDs per meter. 
+#define PIXEL_COUNT 50  // Length of the strings in pixels. I am using a 1 meter long strings that have 60 LEDs per meter. 
 
 
 
@@ -1046,20 +1046,22 @@ void init_serial() {
 // Note that we assume there are enough chars in the buffer to fill the display. If not, we will overrrun head which
 // is safe might just look ugly. It is up to whoever updates the tail pointer to keep enough chars in the buffer to avoid ths. 
 
-// Returns the location in the buffer just past the last byte on the display. 
+// Returns true there is more left in the buffer that did not fit on the display.
 
 // TODO: Return if we hit the end of the char to allow variable width fonts. 
 
 
-unsigned updateLEDs( byte shift ) {
+byte updateLEDs( byte shift ) {
 
   unsigned pixel_count = PIXEL_COUNT;  // Fill all the LED pixels. NOte it is actually ok to send too many pixels, just would be slower
 
   unsigned buffer_edge = buffer_tail;    // Start walking buffer_edge to the end of the string starting from tail (this is the letter we are currently sending)
 
+  unsigned buffer_head_snap = buffer_head;    // take a snapshot of the head becuase it can update in the background when new serial data comes in
+
   while (pixel_count) {
 
-    if ( buffer_edge != buffer_head ) {    // Anything left in buffer to display?
+    if ( buffer_edge != buffer_head_snap ) {    // Anything left in buffer to display?
     
       // send the current columm of the current letter 
   
@@ -1073,8 +1075,7 @@ unsigned updateLEDs( byte shift ) {
         buffer_edge=BUFFER_INC_PTR(buffer_edge);   // Move to next char in the buffer
         shift = 0;                                 // Start at the begining of it
         
-      }
-      
+      }      
               
     } else {
   
@@ -1091,7 +1092,7 @@ unsigned updateLEDs( byte shift ) {
   // Latch everything we just sent into the pixels so it is actually displayed
   show();
 
-  return buffer_edge;
+  return buffer_edge != buffer_head_snap ;
 }
 
 
@@ -1120,37 +1121,23 @@ void setup() {
 }
 
 
-
+byte shift = 0;
 
 void loop() {  
 
-  unsigned buffer_edge = updateLEDs( 0 );    // Draw the display, see if there is any data beyond the display currently 
+  byte moreFlag = updateLEDs( shift );    // Draw the display, see if there is any data beyond the display currently 
 
-/*
-  if (buffer_edge != buffer_head )  {
+  _delay_ms(100);
 
-    // The head is beyond the edge, so there is now data past the right edge of the display,
-    // we should scroll left to bring some 1 char of thatr new data onto the display
+  if ( moreFlag )  {
 
-    // Shift the leftmost char (at tail) off the display to make room on the right
+    shift++;
 
-    for( byte shift = 1; shift < FONT_WIDTH ; shift++ ) {
-  
-      buffer_edge = updateLEDs( shift );
-      _delay_ms(100);
-  
+    if (shift == FONT_WIDTH) {
+      buffer_tail = BUFFER_INC_PTR( buffer_tail );
+      shift = 0;      
     }
-
-    // Move the tail forward one byte so next pass will will be showing that char in step 0
-    buffer_tail = BUFFER_INC_PTR( buffer_tail );      
-      
   }
 
-  if (millis() > 2000) {
-    buffer[buffer_head++]='u';
-    buffer[buffer_head++]='a';    
-  }
-*/
+
 }
-
- 
