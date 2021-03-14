@@ -11,7 +11,7 @@
 #define PIXEL_COUNT 60      // Length of the strings in pixels. I am using a 1 meter long strings that have 60 LEDs per meter. 
 
 
-#define FRAME_DELAY_MS 60    // Minimum time in ms for each frame while scrolling. Lower numbers make for faster scrolling (until we run out of speed).
+#define FRAME_DELAY_MS 50    // Minimum time in ms for each frame while scrolling. Lower numbers make for faster scrolling (until we run out of speed).
 
 static const byte onBits=0b11111110;      // Which digital pins have LED strips attached? 
                                           // If you do not want to use all 8 pins, you can mask off the ones you don't want to use with 0's.
@@ -842,6 +842,9 @@ const byte fontdata[][FONT_WIDTH] PROGMEM = {
 // do not turn on unused pins becuase this would enable the pullup. Also, hopefully passing this
 // will cause the compiler to allocate a Register for it and avoid a reload every pass.
 
+// Assumes interrupts are *off* on entry and returns with them off, but it does turn them on between bits and can
+// tolerate being interrupted for up to 5us. 
+
 // Note that I would like to make this function ` __attribute__((always_inline)) `, but doing so cuases an endless loop someplace.
 // If you can figure out why, LMK and I'll send you a tee shirt.
 
@@ -853,7 +856,6 @@ static void sendBitx8(  const byte row , const byte colorbyte , const byte onBit
       "L_%=: \n\r"  
 
             
-      "cli \n\t"                                    // Turn off interrupts to make sure we meet the T0H deadline. 
       "out %[port], %[onBits] \n\t"                 // Send either T0H or the first part of T1H. Onbits is a mask of which bits have strings attached.
 
       // Next determine if we are going to be sending 1s or 0s based on the current bit in the color....
@@ -861,7 +863,7 @@ static void sendBitx8(  const byte row , const byte colorbyte , const byte onBit
       "and r0, %[colorbyte] \n\t"                   // (1 cycles)  - is the current bit in the color byte set?
       "breq OFF_%= \n\t"                            // (1 cycles) - bit in color is 0, then send full zero row (takes 2 cycles if branch taken, count the extra 1 on the target line)
 
-      "nop \n\t \n\t "                              // (1 cycles) - Balances out the extra cycle on the other path
+      "nop \n\t "                                   // (1 cycles) - Balances out the extra cycle on the other path
       
       // If we get here, then we want to send a 1 for every row that has an ON dot...
       // So if there is a 1 in [row] then the output will still high, otherwise it will go low
@@ -870,7 +872,6 @@ static void sendBitx8(  const byte row , const byte colorbyte , const byte onBit
                                                     // ==========
                                                     // (5 cycles) - T0H (Phase #1) 4 cycles / 16Mhz = 310 nanoseconds. We should be able to get by with 200ns, but I found a WS2813 that says 300ns. 
 
-      "sei \n\t"                                    // (1 cycles) OK to reenable interrupt now - T0H is the only timing sensitive phase https://wp.josh.com/2014/05/13/ws2812-neopixels-are-not-so-finicky-once-you-get-to-know-them/
                                                     
               
       "jmp NEXT_%= \n\t"                            // (3 cycles) 
@@ -885,7 +886,6 @@ static void sendBitx8(  const byte row , const byte colorbyte , const byte onBit
                                                     // ==========
                                                     // (4 cycles) - T0H
                                                     
-      "sei \n\t"                                    // (1 cycles) OK to reenable interrupt now - T0H is the only timing sensitive phase https://wp.josh.com/2014/05/13/ws2812-neopixels-are-not-so-finicky-once-you-get-to-know-them/
 
       "nop \n\t \n\t "                              // (1 cycles) - Balances out the extra cycle on the other path
                   
@@ -899,12 +899,17 @@ static void sendBitx8(  const byte row , const byte colorbyte , const byte onBit
 
       // OK we are done sending this set of bits. Now we need a bit of space for time between bits (T1L 600ns) 
 
+      // OK we are done sending this set of bits. Now we need a bit of space for time between bits (T1L 600ns) 
+      // We give some interrupts a chance to use this time also. It is the safest place since we just sent a bit and have almost nothing to 
+      // do until we send the next one. 
+      
+      "sei \n\t"                                    // (1 cycles)
       "nop \n\t nop \n\t "                          // (2 cycles) 
       "nop \n\t nop \n\t "                          // (2 cycles)      
       "nop \n\t nop \n\t "                          // (2 cycles)      
 
       "nop \n\t nop \n\t "                          // (2 cycles)      
-      "nop \n\t nop \n\t "                          // (2 cycles)      
+      "cli \n\t"                                    // (1 cycles) 
 
       "ror %[bitwalker] \n\t"                       // (1 cycles) - get ready for next pass. On last pass, the bit will end up in C flag
                   
@@ -1035,11 +1040,18 @@ byte updateLEDs( byte shift ) {
 
   unsigned buffer_head_snap = buffer_head;    // take a snapshot of the head becuase it can update in the background when new serial data comes in
 
-  // Sorry now comes an ugly optimization. The code was much clearer, but it was too slow for the pixels. 
+  // Sorry now comes several ugly optimizations. The code was much clearer, but it was too slow for the pixels. 
   // Check out the clean version here https://github.com/bigjosh/MacroMarquee/blob/8fc8c4b1d1a43357b970d4f17a197309e4133168/Arduino/Tickertape/Tickertape.ino#L1054
   
   byte *next_font_col = &(fontdata[ buffer[buffer_edge]- ASCII_OFFSET ][shift]);
   byte font_cols_left = FONT_WIDTH - shift;
+
+  // OK pay attention here, this part gets wierd. Our font calculatons below take very close to the max of 5us between bits so we can not afford to
+  // get interrupted becuase the additionally delay of the interrupt could make the total delay long enough to cause a reset. So we disable inetrrupt
+  // while we are inside updateLEDs() but then enable them durring the spaces between bits in sendBitx8(). Since we do not do any calculation there,
+  // we can tollerat up to about 5us of interrupts at that moment. 
+
+  cli();    // Disable ints durring our calculations
 
 
   // First we step out the leftmost char, which could be shifted...
@@ -1098,6 +1110,9 @@ byte updateLEDs( byte shift ) {
 
     sendCol( 0  );    // All pixels in column off
   }
+
+
+  sei();  // All done with time critical stuff. 
 
   // Latch everything we just sent into the pixels so it is actually displayed
   show();
