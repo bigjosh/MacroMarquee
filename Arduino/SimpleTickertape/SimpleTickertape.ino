@@ -22,7 +22,8 @@ static const byte onBits=0b11111110;      // Which digital pins have LED strips 
 
 #define COLOR_R 0x70                                          
 #define COLOR_G 0x70                                          
-#define COLOR_B 0x70                                          
+#define COLOR_B 0x70     
+//#define COLOR_W 0x00     // Uncomment this line if you are using RGBW LED strips
 
 /*------------------- FONT CUT TOP HERE -------------------------------*/
 
@@ -952,6 +953,9 @@ static __attribute__((always_inline)) void sendCol( byte colBits  ) {
   sendBitx8( colBits , COLOR_G , onBits);    // WS2812 takes colors in GRB order
   sendBitx8( colBits , COLOR_R , onBits);    // WS2812 takes colors in GRB order
   sendBitx8( colBits , COLOR_B , onBits);    // WS2812 takes colors in GRB order  
+  #ifdefined( COLOR_W )
+    sendBitx8( colBits , COLOR_W , onBits);    // White for RGBW strips. Uncomment line above to use these strips. 
+  #endif
   
 }
 
