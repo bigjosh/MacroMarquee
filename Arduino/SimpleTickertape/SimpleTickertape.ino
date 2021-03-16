@@ -862,87 +862,94 @@ const byte fontdata[][FONT_WIDTH] PROGMEM = {
 // Note that I would like to make this function ` __attribute__((always_inline)) `, but doing so cuases an endless loop someplace.
 // If you can figure out why, LMK and I'll send you a tee shirt.
 
-static void sendBitx8(  const byte row , const byte colorbyte , const byte onBits ) {  
+// At 16Mhz, each cycle is 62.5ns. We will aim for...
+// T0H 375ns =  6 cycles
+// T1H 750ns = 12 cycles
+// T1L 375ns =  6 cycles
+
+// Note that forcing this function inline actually slows things down between sends!
+
+static void inline  sendBitx8(  const byte row , const byte colorbyte , const byte onBits ) {  
               
     __asm__ __volatile__ (
+      
+      // Ok, we will use __tmp_reg as both our bitwalker and our loop counter. We start at 0b10000000 and shift the 1 bit down until it it gone.
+      // Unfortunately there is no way to load an immedeate value into __tmp_reg__ so this messy sec/ror is the best I could come up with. Is there a better way?
+            
+      "mov __tmp_reg__,__zero_reg__ \n\t"           // We will walk this bit down 8 times to test bits in colorbyte and also as our loop counter
+      "sec \n\t"
+      "ror __tmp_reg__ \n\t"           // We will walk this bit down 8 times to test bits in colorbyte and also as our loop counter
 
-
-      "L_%=: \n\r"  
+      "L_%=: \n\t"  
 
             
       "out %[port], %[onBits] \n\t"                 // Send either T0H or the first part of T1H. Onbits is a mask of which bits have strings attached.
 
       // Next determine if we are going to be sending 1s or 0s based on the current bit in the color....
-      "mov r0, %[bitwalker] \n\t"                   // (1 cycles)  - Get ready to check if we should send all zeros      
-      "and r0, %[colorbyte] \n\t"                   // (1 cycles)  - is the current bit in the color byte set?
-      "breq OFF_%= \n\t"                            // (1 cycles) - bit in color is 0, then send full zero row (takes 2 cycles if branch taken, count the extra 1 on the target line)
+       
+      "push __tmp_reg__ \n\t"                       // (2 cycles)  - I know it seems silly to push this, but it saves a register and we have time to waste here anyway.
+      "and __tmp_reg__, %[colorbyte] \n\t"          // (1 cycles)  - is the current bit in the color byte set?
+      
+      "brne ON_%= \n\t"                             // (1 cycles) - bit in color is 0, then send full zero row (takes 2 cycles if branch taken, count the extra 1 on the target line)
 
-      "nop \n\t "                                   // (1 cycles) - Balances out the extra cycle on the other path
+      "nop \n\t "                                   // (1 cycles) - Balances out the extra cycle on the other branch path
+
+      "out %[port], __zero_reg__ \n\t"              // (1 cycles) - set the output bits to 0x00 based on the bit in colorbyte. This is phase for T0H-T1H
+                                                    // ==========
+                                                    // (6 cycles) - T0H = 375ns
+
+      "rjmp NEXT_%= \n\t"                           // (2 cycles) 
+
+
+      "ON_%=: \n\r"                                 // (1 cycles) - Note that we land here becuase of breq, which takes takes 2 cycles 
+
       
       // If we get here, then we want to send a 1 for every row that has an ON dot...
       // So if there is a 1 in [row] then the output will still high, otherwise it will go low
       // making a short zero bit signal. 
       "out %[port], %[row]   \n\t"                  // (1 cycles) - set the output bits to [row] This is phase for T0H-T1H.
                                                     // ==========
-                                                    // (5 cycles) - T0H (Phase #1) 4 cycles / 16Mhz = 310 nanoseconds. We should be able to get by with 200ns, but I found a WS2813 that says 300ns. 
+                                                    // (6 cycles) - T0H (Phase #1) 4 cycles / 16Mhz = 375 nanoseconds. We should be able to get by with 200ns, but I found a WS2813 that says 300ns. 
 
-                                                    
-              
-      "jmp NEXT_%= \n\t"                            // (3 cycles) 
-                                                    // (1 cycles) - The OUT on the next pass of the loop
-                                                    // ==========
-                                                    // (7 cycles) - T1L
-                                                   
-                                                          
-      "OFF_%=: \n\r"                                // (1 cycles)    Note that we land here becuase of breq, which takes takes 2 cycles
+                                                    // Right here the 1 bits are still high.
+
+      "nop \n\t nop \n\t "                          // (2 cycles) 
+
+                  
+      "NEXT_%=: \n\t"                               // Either way we got here, we are at 8 cycles. We need to get to 12. 
+
+
+      "pop __tmp_reg__  \n\t"                       // (2 cycles)  -  Pop our bitwalker that we pushed above
+
+      "nop \n\t "                                   // (1 cycles) 
 
       "out %[port], __zero_reg__ \n\t"              // (1 cycles) - set the output bits to 0x00 based on the bit in colorbyte. This is phase for T0H-T1H
                                                     // ==========
-                                                    // (4 cycles) - T0H
-                                                    
+                                                    // (12 cycles)- T1H (Phase #2 ) 12 cycles / 16Mhz = 750ns      
 
-      "nop \n\t \n\t "                              // (1 cycles) - Balances out the extra cycle on the other path
+      // OK we are done sending this set of bits. Now we need a bit of space for time between bits (T1L 375ns, 6 cycles) 
+
+
+      "nop \n\t nop \n\t "                          // (2 cycles) 
+
+      "nop \n\t "                                   // (1 cycles)      
+
+      "lsr __tmp_reg__ \n\t "                       // (1 cycles) - get ready for next pass. On last pass, the bit will end up in C flag
                   
-      "NEXT_%=: \n\t"
+      "brcc L_%= \n\t"                              // (2 cycles if loop followed) Exit if carry bit is set as a result of us walking all 8 bits. 
+                                                    // If above loop is taken, then full 6 cycles for T1L
 
-      "nop \n\t nop \n\t "                          // (2 cycles) 
+                                                    // Above is 6 cycles including either the return + next call , or the brcc branch + cli at top
 
-      "out %[port], __zero_reg__ \n\t"              // (1 cycles) - set the output bits to 0x00 based on the bit in colorbyte. This is phase for T0H-T1H
-                                                    // ==========
-                                                    // (9 cycles) - T1H (Phase #2 ) 9 cycles / 16Mhz = 560ns      
+      //"break \n\r"
 
-      // OK we are done sending this set of bits. Now we need a bit of space for time between bits (T1L 600ns) 
-
-      // OK we are done sending this set of bits. Now we need a bit of space for time between bits (T1L 600ns) 
-      // We give some interrupts a chance to use this time also. It is the safest place since we just sent a bit and have almost nothing to 
-      // do until we send the next one. 
-
-
-      "nop \n\t nop \n\t "                          // (2 cycles) 
-      "nop \n\t nop \n\t "                          // (2 cycles)      
-
-      
-  //    "sei \n\t"                                    // (1 cycles)
-      "nop \n\t nop \n\t "                          // (2 cycles) 
-      "nop \n\t nop \n\t "                          // (2 cycles)      
-      "nop \n\t nop \n\t "                          // (2 cycles)      
-
-      "nop \n\t nop \n\t "                          // (2 cycles)      
-   //   "cli \n\t"                                    // (1 cycles) 
-
-      "ror %[bitwalker] \n\t"                       // (1 cycles) - get ready for next pass. On last pass, the bit will end up in C flag
-                  
-      "brcc L_%= \n\t"                              // (1 cycles) Exit if carry bit is set as a result of us walking all 8 bits. We assume that the process around us will takw long enough to cover the phase 3 delay
-
-                                                    // Above is at least 9 cycles including either the return + next call , or the brcc branch + cli at top
           
-      ::
+      ::                                          // No outputs
       [port]    "I" (_SFR_IO_ADDR(PIXEL_PORT)),
       [row]   "d" (row),
       [onBits]   "d" (onBits),
-      [colorbyte]   "d" (colorbyte ),     // Phase 2 of the signal where the actual data bits show up.                
-      [bitwalker] "r" (0x80)                      // Alocate a register to hold a bit that we will walk down though the color byte
-
+      [colorbyte]   "d" (colorbyte )             // Phase 2 of the signal where the actual data bits show up.                
+      
     );
                                   
     // Note that the inter-bit gap can be as long as you want as long as it doesn't exceed the reset timeout (which is a long time)
@@ -1039,7 +1046,7 @@ void init_serial() {
 
 // true if char is in the set
 
-static inline byte isValidChar( const byte b ) {
+static constexpr byte isValidChar( const byte b ) {
   return (b>=ASCII_OFFSET) && (b<(ASCII_OFFSET+size(fontdata)));
 }
 
@@ -1124,7 +1131,7 @@ byte updateLEDs( byte shift ) {
       byte *next_font_col = getFirstColOfChar( buffer[buffer_edge] );
       byte font_cols_left = FONT_WIDTH;                    // full char
   
-      while (pixel_count && font_cols_left) {
+      while (font_cols_left && pixel_count) {
       
         sendCol( pgm_read_byte_near( next_font_col++ ));    // Send next col of bits to LEDs. pgm_read stuff is becuase fontdata is PROGMEM.
         pixel_count--;          
