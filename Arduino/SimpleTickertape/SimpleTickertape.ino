@@ -11,7 +11,8 @@
 #define PIXEL_COUNT 60      // Length of the strings in pixels. I am using a 1 meter long strings that have 60 LEDs per meter. 
 
 
-#define FRAME_DELAY_MS 50    // Minimum time in ms for each frame while scrolling. Lower numbers make for faster scrolling (until we run out of speed).
+#define MAX_DELAY_MS 50    // Max time in ms for each frame while scrolling. Lower numbers make for faster scrolling (until we run out of speed).
+                           // Note that we automatically start speeding up when the buffer starts getting full and then slow down again when it starts getting empty. 
 
 static const byte onBits=0b11111110;      // Which digital pins have LED strips attached? 
                                           // If you do not want to use all 8 pins, you can mask off the ones you don't want to use with 0's.
@@ -1018,6 +1019,20 @@ const byte *buffer_last = buffer +BUFFER_LEN -1;    // Remember the end of the b
   }
 }
 
+// Return number of bytes currently in buffer
+
+unsigned buffer_count() {
+
+  if (buffer_head >= buffer_tail) {
+    return buffer_head-buffer_tail;
+  } else {
+    // This means that the head has already wrapped around so now tail as to catch up
+    // We figure this out by adding the byte from the tail to the end, and then also from the beginging to the head
+    return (buffer_last - buffer_tail +1) + (buffer_head -buffer);
+  }
+  
+}
+
 
 // Programatically add a char to the end of the buffer 
 // Inlined this since it is called from the serial ISR so we want to be quick about it. 
@@ -1205,10 +1220,18 @@ unsigned long last_frame_time_ms = 0;
 void loop() {  
 
   byte moreFlag = updateLEDs( shift );    // Draw the display, see if there is any data beyond the display currently 
-  
-  _delay_ms( FRAME_DELAY_MS );            // Slow down a bit so people can see it
 
   if ( moreFlag )  {                      // If there is more text in the buffer, we will scroll it out 1 column at a time
+
+    // There is more in the buffer to display
+
+    float buffer_fullness = 1.0 *  buffer_count() / BUFFER_LEN;    // How full is the buffer? 0.0-1.0
+
+    // Here we adjust our speed based on how full the buffer is to help empty it quicker when it starts to get full.
+    // We actually use the square of the speed so that things stay slow and readable until the buffer really
+    // starts to get full. 
+    unsigned delay_ms = 1.0* MAX_DELAY_MS * ( 1.0 - (buffer_fullness * buffer_fullness));
+    delay( delay_ms ); 
 
     shift++;                              // Shift current char forward one column
 
