@@ -1127,62 +1127,58 @@ byte updateLEDs( byte shift ) {
   // Sorry now comes several ugly optimizations. The code was much clearer, but it was too slow for the pixels. 
   // Check out the clean version here https://github.com/bigjosh/MacroMarquee/blob/8fc8c4b1d1a43357b970d4f17a197309e4133168/Arduino/Tickertape/Tickertape.ino#L1054
   
-  // OK pay attention here, this part gets wierd. Our font calculatons below take very close to the max of 5us between bits so we can not afford to
-  // get interrupted becuase the additionally delay of the interrupt could make the total delay long enough to cause a reset. So we disable inetrrupt
-  // while we are inside updateLEDs() but then enable them durring the spaces between bits in sendBitx8(). Since we do not do any calculation there,
-  // we can tollerat up to about 5us of interrupts at that moment. 
-
-  cli();    // Disable ints durring our calculations
-
   // First we step out the leftmost char, which could be shifted...
+  const byte *next_font_col =  getFirstColOfChar( *buffer_edge )+shift;    // Start at the shifted column
+  byte font_cols_left = FONT_WIDTH - shift;
 
-  if (buffer_edge != buffer_head_snap) {
+  cli();    // Disable ints while we send data to pixels so we do not get interrupted. 
 
-    const byte *next_font_col =  getFirstColOfChar( *buffer_edge )+shift;    // Start at the shifted column
-    byte font_cols_left = FONT_WIDTH - shift;
-      
-    while (font_cols_left && pixel_count) {
-      
-      sendCol( pgm_read_byte_near( next_font_col++ ));    // Send next col of bits to LEDs. pgm_read stuff is becuase fontdata is PROGMEM.
-      pixel_count--;
-      font_cols_left--;
-      
-    }
-
-    buffer_edge= increment_buffer_ptr( buffer_edge );     // move on to next (2nd) char
-
-  }
-
-  // Next we send the remaining chars until we run out of pixels or run out of buffer
     
-  while (pixel_count) {
-
-    if ( buffer_edge != buffer_head_snap ) {
-
-      const byte *next_font_col = getFirstColOfChar( *buffer_edge );
-      byte font_cols_left = FONT_WIDTH;                    // full char
-  
-      while (font_cols_left && pixel_count) {
-      
-        sendCol( pgm_read_byte_near( next_font_col++ ));    // Send next col of bits to LEDs. pgm_read stuff is becuase fontdata is PROGMEM.
-        pixel_count--;          
-        font_cols_left--;
-  
-      }      
-      
-      buffer_edge= increment_buffer_ptr( buffer_edge );   // More on to Next char
-              
-    } else {
-
-      // If we get here, we ran out of buffer to display before we ran out of pixels, so fill with blanks
-      // This only happens when we first start up 
-  
-      sendCol(  0  );    // All pixels in column off        
-      pixel_count--;
-    }
-  
+  while (font_cols_left && pixel_count) {
+    
+    sendCol( pgm_read_byte_near( next_font_col++ ));    // Send next col of bits to LEDs. pgm_read stuff is becuase fontdata is PROGMEM.
+    pixel_count--;
+    font_cols_left--;
+    
   }
 
+  if (pixel_count) {
+
+    do {
+
+      buffer_edge= increment_buffer_ptr( buffer_edge );     // move on to next (2nd) char
+  
+      if (buffer_edge == buffer_head_snap) {
+        goto FINISHED_BUFFER;                 // Sorry, but can you think of a better way to do this sequence that is not slower? 
+      }
+  
+      next_font_col = getFirstColOfChar( *buffer_edge );
+      font_cols_left = FONT_WIDTH-1;                    // full char    
+  
+      do {
+        
+        sendCol( pgm_read_byte_near( next_font_col++ ));    // Send next col of bits to LEDs. pgm_read stuff is becuase fontdata is PROGMEM.
+        pixel_count--;   
+  
+        if (!pixel_count) {
+          goto FINISHED_PIXELS;
+        }
+                             
+      } while (font_cols_left--); 
+
+    } while (1); 
+
+  }
+
+  FINISHED_BUFFER:
+
+  // Fill any remaining pixels with blanks. This only happens when we first start up and buffer is empty. 
+
+  while (pixel_count--) {
+    sendCol(  0  );    // All pixels in column off               
+  }
+
+  FINISHED_PIXELS:
     
   sei();  // All done with time critical stuff. 
 
@@ -1207,7 +1203,8 @@ void setup() {
 
   // Show something on startup so we know it is working
   // (you can delete this branding if you are that kind of person)
-  stuff_buffer( "SimpleTickertape from JOSH.COM " );
+  //stuff_buffer( "SimpleTickertape from JOSH.COM " );
+  stuff_buffer( "12345678900" );
 
   updateLEDs( 0 );    // Show startup message.   
 }
@@ -1219,7 +1216,9 @@ unsigned long last_frame_time_ms = 0;
 
 void loop() {  
 
-  byte moreFlag = updateLEDs( shift );    // Draw the display, see if there is any data beyond the display currently 
+  byte moreFlag = updateLEDs(  shift );    // Draw the display, see if there is any data beyond the display currently 
+
+  //while (1);
 
   if ( moreFlag )  {                      // If there is more text in the buffer, we will scroll it out 1 column at a time
 
