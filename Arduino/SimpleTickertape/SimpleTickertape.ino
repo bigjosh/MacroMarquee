@@ -20,9 +20,9 @@ static const byte onBits=0b11111110;      // Which digital pins have LED strips 
 
 // Define the color we will send for on pixels. Each value is a byte 0-255. 
 
-#define COLOR_R 0x70                                          
-#define COLOR_G 0x70                                          
-#define COLOR_B 0x70     
+#define COLOR_R 0x00                                          
+#define COLOR_G 0x00                                          
+#define COLOR_B 0x20     
 //#define COLOR_W 0x00     // Uncomment this line if you are using RGBW LED strips
 
 /*------------------- FONT CUT TOP HERE -------------------------------*/
@@ -47,6 +47,8 @@ static const byte onBits=0b11111110;      // Which digital pins have LED strips 
 // PROGMEM after variable name as per https://www.arduino.cc/en/Reference/PROGMEM
 
 #define ASCII_OFFSET (0x20)     // ASCII code of 1st char in font array
+
+#define ASCII_NONPRINT (0x80)   // ASCII code of char to show for chars not included in the font (could also be a space)
 
 #define FONT_WIDTH 6      
 
@@ -812,14 +814,25 @@ const byte fontdata[][FONT_WIDTH] PROGMEM = {
        0b00010000,
        0b00000000,  // Interchar space
     },
-    { // ASCII 0x7F       0b00010000,
+    { // ASCII 0x7F
+       0b00010000,
        0b00111000,
        0b01010100,
        0b00010000,
        0b00010000,
        0b00000000,  // Interchar space
     },
+    { // ASCII 0x80 (box)
+       0b11111110,    
+       0b10000010,
+       0b10000010,
+       0b10000010,
+       0b11111111,
+       0b00000000,  // Interchar space
+    },
+    
 };
+
 
 
 /*------------------- FONT CUT BOTTOM HERE -------------------------------*/
@@ -903,14 +916,19 @@ static void sendBitx8(  const byte row , const byte colorbyte , const byte onBit
       // OK we are done sending this set of bits. Now we need a bit of space for time between bits (T1L 600ns) 
       // We give some interrupts a chance to use this time also. It is the safest place since we just sent a bit and have almost nothing to 
       // do until we send the next one. 
+
+
+      "nop \n\t nop \n\t "                          // (2 cycles) 
+      "nop \n\t nop \n\t "                          // (2 cycles)      
+
       
-      "sei \n\t"                                    // (1 cycles)
+  //    "sei \n\t"                                    // (1 cycles)
       "nop \n\t nop \n\t "                          // (2 cycles) 
       "nop \n\t nop \n\t "                          // (2 cycles)      
       "nop \n\t nop \n\t "                          // (2 cycles)      
 
       "nop \n\t nop \n\t "                          // (2 cycles)      
-      "cli \n\t"                                    // (1 cycles) 
+   //   "cli \n\t"                                    // (1 cycles) 
 
       "ror %[bitwalker] \n\t"                       // (1 cycles) - get ready for next pass. On last pass, the bit will end up in C flag
                   
@@ -953,7 +971,7 @@ static __attribute__((always_inline)) void sendCol( byte colBits  ) {
   sendBitx8( colBits , COLOR_G , onBits);    // WS2812 takes colors in GRB order
   sendBitx8( colBits , COLOR_R , onBits);    // WS2812 takes colors in GRB order
   sendBitx8( colBits , COLOR_B , onBits);    // WS2812 takes colors in GRB order  
-  #ifdefined( COLOR_W )
+  #ifdef COLOR_W 
     sendBitx8( colBits , COLOR_W , onBits);    // White for RGBW strips. Uncomment line above to use these strips. 
   #endif
   
@@ -1019,6 +1037,28 @@ void init_serial() {
   UCSR0B |= 1 << RXCIE0;  // Enable recieve complete interrupt
 }
 
+// true if char is in the set
+
+static inline byte isValidChar( const byte b ) {
+  return (b>=ASCII_OFFSET) && (b<(ASCII_OFFSET+size(fontdata)));
+}
+
+// Returns a pointer to the first column of the specified ascii char in the font
+// if the char is not in the font, then is returns the first col of ASCII_NONPRINT
+
+static inline byte *getFirstColOfChar( const byte c ) {
+
+  if (isValidChar( c )) {
+  
+    return fontdata[ c- ASCII_OFFSET ];
+
+  } else {
+
+    return fontdata[ ASCII_NONPRINT- ASCII_OFFSET ];    // We don not have font data for ths ASCCI, so show the specified non-printable symbol instead
+    
+  }
+  
+}
 
 // Send a full batch of data out to the LEDs
 // Starts at buffer_tail and keeps sending until all the LEDs are updated.
@@ -1027,7 +1067,6 @@ void init_serial() {
 // when shift=0 that means start at col 0, which means send the full char width of the first char.
 
 // Returns true there is more left in the buffer that did not fit on the display.
-
 
 byte updateLEDs( byte shift ) {
 
@@ -1047,8 +1086,8 @@ byte updateLEDs( byte shift ) {
   // Sorry now comes several ugly optimizations. The code was much clearer, but it was too slow for the pixels. 
   // Check out the clean version here https://github.com/bigjosh/MacroMarquee/blob/8fc8c4b1d1a43357b970d4f17a197309e4133168/Arduino/Tickertape/Tickertape.ino#L1054
   
-  byte *next_font_col = &(fontdata[ buffer[buffer_edge]- ASCII_OFFSET ][shift]);
-  byte font_cols_left = FONT_WIDTH - shift;
+  byte *next_font_col;
+  byte font_cols_left;
 
   // OK pay attention here, this part gets wierd. Our font calculatons below take very close to the max of 5us between bits so we can not afford to
   // get interrupted becuase the additionally delay of the interrupt could make the total delay long enough to cause a reset. So we disable inetrrupt
@@ -1057,65 +1096,55 @@ byte updateLEDs( byte shift ) {
 
   cli();    // Disable ints durring our calculations
 
-
   // First we step out the leftmost char, which could be shifted...
-
 
   if (buffer_edge != buffer_head_snap) {
 
-    while (pixel_count && font_cols_left ) {
-
+    byte *next_font_col =  getFirstColOfChar( buffer[buffer_edge] )+shift;    // Start at the shifted column
+    byte font_cols_left = FONT_WIDTH - shift;
+      
+    while (font_cols_left && pixel_count) {
+      
       sendCol( pgm_read_byte_near( next_font_col++ ));    // Send next col of bits to LEDs. pgm_read stuff is becuase fontdata is PROGMEM.
       pixel_count--;
       font_cols_left--;
       
     }
 
-    // Next we send the remaining chars until we run out of pixels or run out of buffer
+    buffer_edge= BUFFER_INC_PTR( buffer_edge );     // move on to next (2nd) char
 
-    buffer_edge= BUFFER_INC_PTR( buffer_edge );     // next char
+  }
 
-    if ( buffer_edge != buffer_head_snap) {
-
-      next_font_col = &(fontdata[ buffer[buffer_edge]- ASCII_OFFSET ][0]);
-      font_cols_left = FONT_WIDTH;                    // full char
-
-      while (pixel_count) {
+  // Next we send the remaining chars until we run out of pixels or run out of buffer
     
+  while (pixel_count) {
+
+    if ( buffer_edge != buffer_head_snap ) {
+
+      byte *next_font_col = getFirstColOfChar( buffer[buffer_edge] );
+      byte font_cols_left = FONT_WIDTH;                    // full char
+  
+      while (pixel_count && font_cols_left) {
+      
         sendCol( pgm_read_byte_near( next_font_col++ ));    // Send next col of bits to LEDs. pgm_read stuff is becuase fontdata is PROGMEM.
-        pixel_count--;
-      
+        pixel_count--;          
         font_cols_left--;
+  
+      }      
       
-        if (font_cols_left==0) {                        // Finished current char
-
-          buffer_edge= BUFFER_INC_PTR( buffer_edge );   // More on to Next char
-
-
-          if (buffer_edge == buffer_head_snap) {
-            break;                                      // break out of this loop that is sending the middle chars
-          }
-          
-          next_font_col =&(fontdata[ buffer[buffer_edge]- ASCII_OFFSET ][0]);
-          font_cols_left = FONT_WIDTH;
-        
-        }
-
-      }
+      buffer_edge= BUFFER_INC_PTR( buffer_edge );   // More on to Next char
               
-    } 
+    } else {
 
+      // If we get here, we ran out of buffer to display before we ran out of pixels, so fill with blanks
+      // This only happens when we first start up 
+  
+      sendCol( 0  );    // All pixels in column off        
+    }
+  
   }
+
     
-  while (pixel_count--) {
-      
-    // Blank out any remaining pixels at the end of the display
-    // This only happens when we first start up and there is not enough message in the buffer to fill the dispay
-
-    sendCol( 0  );    // All pixels in column off
-  }
-
-
   sei();  // All done with time critical stuff. 
 
   // Latch everything we just sent into the pixels so it is actually displayed
