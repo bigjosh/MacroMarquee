@@ -973,7 +973,7 @@ constexpr size_t size(T (&)[N]) { return N; }
 // Send 3 bytes of color data (R,G,B) for a signle pixel down all the connected strings at the same time
 // A 1 bit in "row" means send the color, a 0 bit means send black. 
 
-static __attribute__((always_inline)) void sendCol( byte colBits  ) {
+static __attribute__((always_inline)) inline void sendCol( byte colBits  ) {
 
   sendBitx8( colBits , COLOR_G , onBits);    // WS2812 takes colors in GRB order
   sendBitx8( colBits , COLOR_R , onBits);    // WS2812 takes colors in GRB order
@@ -994,22 +994,40 @@ static __attribute__((always_inline)) void sendCol( byte colBits  ) {
 
 byte buffer[ BUFFER_LEN ];
 
-unsigned volatile buffer_head = 0;       // Newly recieved bytes go here
-unsigned volatile buffer_tail = 0;       // Points to the first currently displayed char
+volatile byte * volatile buffer_head = buffer;      // Newly recieved bytes go here
+volatile byte *buffer_tail = buffer;                // Points to the first currently displayed (leftmost) char
+
+const byte *buffer_last = buffer +BUFFER_LEN -1;    // Remember the end of the buffer to we can test for it when incrementing to detect wrap at end
 
 // Increment the specified pointer with wrap if we get to the end
+// Two versions to match volatile and non-volatile. I could not figure out how to do this with a template and one function, can you?
 
-#define BUFFER_INC_PTR(x) ( (x==(BUFFER_LEN-1) )? 0 : x+1 )
+ byte *increment_buffer_ptr( byte *ptr) {
+  if (ptr!=buffer_last) {
+    return ptr+1;
+  } else {
+    return buffer;
+  }
+}
+
+ volatile byte *increment_buffer_ptr( volatile byte * volatile ptr) {
+  if (ptr!=buffer_last) {
+    return ptr+1;
+  } else {
+    return buffer;
+  }
+}
+
 
 // Programatically add a char to the end of the buffer 
-// I inlined this since it is called from the serial ISR so we want to be quick about it. 
+// Inlined this since it is called from the serial ISR so we want to be quick about it. 
 
 void inline stuff_buffer( const byte b ) {
   
-  unsigned new_head = BUFFER_INC_PTR(buffer_head);        // Compute the new head after this char
+  volatile byte * const new_head = increment_buffer_ptr(buffer_head);        // Compute the new head after this char
 
-  if (new_head != buffer_tail)  {             // Room for another char? 
-      buffer[buffer_head] = b;
+  if ( new_head != buffer_tail)  {             // Room for another char? If not, it is siently dropped
+      *buffer_head = b;
       buffer_head = new_head;
   }   
   
@@ -1044,7 +1062,7 @@ void init_serial() {
   UCSR0B |= 1 << RXCIE0;  // Enable recieve complete interrupt
 }
 
-// true if char is in the set
+// true if char is in the font
 
 static constexpr byte isValidChar( const byte b ) {
   return (b>=ASCII_OFFSET) && (b<(ASCII_OFFSET+size(fontdata)));
@@ -1052,8 +1070,9 @@ static constexpr byte isValidChar( const byte b ) {
 
 // Returns a pointer to the first column of the specified ascii char in the font
 // if the char is not in the font, then is returns the first col of ASCII_NONPRINT
+// Note this is retruning a pointer inside fontdata which is in PROGMEM 
 
-static inline byte *getFirstColOfChar( const byte c ) {
+static inline const byte *getFirstColOfChar( const byte c ) {
 
   if (isValidChar( c )) {
   
@@ -1086,16 +1105,13 @@ byte updateLEDs( byte shift ) {
   
   unsigned pixel_count = PIXEL_COUNT;  // Fill all the LED pixels. Note it is actually ok to send too many pixels, just would be slower
 
-  unsigned buffer_edge = buffer_tail;    // Start walking buffer_edge to the end of the string starting from tail (this is the letter we are currently sending)
+  volatile byte *buffer_edge = buffer_tail;    // Start walking buffer_edge to the end of the string starting from tail (this is the letter we are currently sending)
 
-  unsigned buffer_head_snap = buffer_head;    // take a snapshot of the head becuase it can update in the background when new serial data comes in
+  volatile byte *buffer_head_snap = buffer_head;    // take a snapshot of the head becuase it can update in the background when new serial data comes in
 
   // Sorry now comes several ugly optimizations. The code was much clearer, but it was too slow for the pixels. 
   // Check out the clean version here https://github.com/bigjosh/MacroMarquee/blob/8fc8c4b1d1a43357b970d4f17a197309e4133168/Arduino/Tickertape/Tickertape.ino#L1054
   
-  byte *next_font_col;
-  byte font_cols_left;
-
   // OK pay attention here, this part gets wierd. Our font calculatons below take very close to the max of 5us between bits so we can not afford to
   // get interrupted becuase the additionally delay of the interrupt could make the total delay long enough to cause a reset. So we disable inetrrupt
   // while we are inside updateLEDs() but then enable them durring the spaces between bits in sendBitx8(). Since we do not do any calculation there,
@@ -1107,7 +1123,7 @@ byte updateLEDs( byte shift ) {
 
   if (buffer_edge != buffer_head_snap) {
 
-    byte *next_font_col =  getFirstColOfChar( buffer[buffer_edge] )+shift;    // Start at the shifted column
+    const byte *next_font_col =  getFirstColOfChar( *buffer_edge )+shift;    // Start at the shifted column
     byte font_cols_left = FONT_WIDTH - shift;
       
     while (font_cols_left && pixel_count) {
@@ -1118,7 +1134,7 @@ byte updateLEDs( byte shift ) {
       
     }
 
-    buffer_edge= BUFFER_INC_PTR( buffer_edge );     // move on to next (2nd) char
+    buffer_edge= increment_buffer_ptr( buffer_edge );     // move on to next (2nd) char
 
   }
 
@@ -1128,7 +1144,7 @@ byte updateLEDs( byte shift ) {
 
     if ( buffer_edge != buffer_head_snap ) {
 
-      byte *next_font_col = getFirstColOfChar( buffer[buffer_edge] );
+      const byte *next_font_col = getFirstColOfChar( *buffer_edge );
       byte font_cols_left = FONT_WIDTH;                    // full char
   
       while (font_cols_left && pixel_count) {
@@ -1139,14 +1155,15 @@ byte updateLEDs( byte shift ) {
   
       }      
       
-      buffer_edge= BUFFER_INC_PTR( buffer_edge );   // More on to Next char
+      buffer_edge= increment_buffer_ptr( buffer_edge );   // More on to Next char
               
     } else {
 
       // If we get here, we ran out of buffer to display before we ran out of pixels, so fill with blanks
       // This only happens when we first start up 
   
-      sendCol( 0  );    // All pixels in column off        
+      sendCol(  0  );    // All pixels in column off        
+      pixel_count--;
     }
   
   }
@@ -1196,7 +1213,7 @@ void loop() {
     shift++;                              // Shift current char forward one column
 
     if (shift == FONT_WIDTH) {            // If we are done with this char, on to the next one
-      buffer_tail = BUFFER_INC_PTR( buffer_tail );
+      buffer_tail = increment_buffer_ptr( buffer_tail );
       shift = 0;      
     }
   }
