@@ -1201,18 +1201,7 @@ void setup() {
 
   // Show something on startup so we know it is working
   // (you can delete this branding if you are that kind of person)
-  //stuff_buffer( "SimpleTickertape from JOSH.COM " );
-  stuff_buffer( "12345678900" );
-
-  if (updateLEDs( 0 )) { //;    // Show startup message.  
-    memcpy( buffer_tail,  "MORE"  , 4);    
-  } else {
-    memcpy( buffer_tail,  "DONE"  , 4);    
-  }
-
-   
-updateLEDs( 0 );
-  while (1);
+  stuff_buffer( "SimpleTickertape from JOSH.COM " );
 }
 
 
@@ -1224,7 +1213,6 @@ void loop() {
 
   byte moreFlag = updateLEDs(  shift );    // Draw the display, see if there is any data beyond the display currently 
 
-  //while (1);
 
   if ( moreFlag )  {                      // If there is more text in the buffer, we will scroll it out 1 column at a time
 
