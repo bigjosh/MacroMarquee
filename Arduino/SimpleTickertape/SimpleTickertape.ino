@@ -1136,7 +1136,7 @@ byte updateLEDs( byte shift ) {
   
   // First we step out the leftmost char, which could be shifted...
   const byte *next_font_col =  getFirstColOfChar( *buffer_edge )+shift;    // Start at the shifted column
-  byte font_cols_left = FONT_WIDTH - shift;
+  byte font_cols_left = FONT_WIDTH - shift ;
 
   cli();    // Disable ints while we send data to pixels so we do not get interrupted. 
 
@@ -1145,38 +1145,25 @@ byte updateLEDs( byte shift ) {
     
     sendCol( pgm_read_byte_near( next_font_col++ ));    // Send next col of bits to LEDs. pgm_read stuff is becuase fontdata is PROGMEM.
     pixel_count--;
-    font_cols_left--;
     
-  }
+    font_cols_left--;
 
-  if (pixel_count) {
+    if (!font_cols_left) {
 
-    do {
-
-      buffer_edge= increment_buffer_ptr( buffer_edge );     // move on to next (2nd) char
+      buffer_edge= increment_buffer_ptr( buffer_edge );     // move on to next char
   
       if (buffer_edge == buffer_head_snap) {
         goto FINISHED_BUFFER;                 // Sorry, but can you think of a better way to do this sequence that is not slower? 
       }
   
       next_font_col = getFirstColOfChar( *buffer_edge );
-      font_cols_left = FONT_WIDTH-1;                    // full char    
-  
-      do {
-        
-        sendCol( pgm_read_byte_near( next_font_col++ ));    // Send next col of bits to LEDs. pgm_read stuff is becuase fontdata is PROGMEM.
-        pixel_count--;   
-  
-        if (!pixel_count) {
-          goto FINISHED_PIXELS;
-        }
-                             
-      } while (font_cols_left--); 
+      font_cols_left = FONT_WIDTH;                    // full char    
+            
+    }
 
-    } while (1); 
-
+    
   }
-
+ 
   FINISHED_BUFFER:
 
   // Fill any remaining pixels with blanks. This only happens when we first start up and buffer is empty. 
@@ -1198,22 +1185,34 @@ byte updateLEDs( byte shift ) {
 
 
 void setup() {
+  init_serial();
+  
   PIXEL_DDR |= onBits;         // Set used pins to output mode
 
   // This seems to reset some stuck pixels and leaves all outputs cleanly low
   PIXEL_PORT |= onBits;       // Set all outputs to 1
-  delay( 1000);
+  delay( 100);
   PIXEL_PORT &= ~onBits;       // Set all outputs to 0
-  delay( 1000);
-
-  init_serial();
+  delay( 100);
+  PIXEL_PORT |= onBits;       // Set all outputs to 1
+  delay( 100);
+  PIXEL_PORT &= ~onBits;       // Set all outputs to 0
+  delay( 100);
 
   // Show something on startup so we know it is working
   // (you can delete this branding if you are that kind of person)
   //stuff_buffer( "SimpleTickertape from JOSH.COM " );
   stuff_buffer( "12345678900" );
 
-  updateLEDs( 0 );    // Show startup message.   
+  if (updateLEDs( 0 )) { //;    // Show startup message.  
+    memcpy( buffer_tail,  "MORE"  , 4);    
+  } else {
+    memcpy( buffer_tail,  "DONE"  , 4);    
+  }
+
+   
+updateLEDs( 0 );
+  while (1);
 }
 
 
