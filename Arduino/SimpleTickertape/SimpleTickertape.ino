@@ -973,11 +973,18 @@ constexpr size_t size(T (&)[N]) { return N; }
 
 // Send 3 bytes of color data (R,G,B) for a signle pixel down all the connected strings at the same time
 // A 1 bit in "row" means send the color, a 0 bit means send black. 
+// Assumes interrupts are OFF, but turns them on briefly between bytes since this is when we have the most time to
+// allow some latency - about 5us for older WS2812Bs, much longer for newer ones. Our serial ISR takes much less than 5us,
+// so should be no problem. 
 
 static __attribute__((always_inline)) inline void sendCol( byte colBits  ) {
 
   sendBitx8( colBits , COLOR_G , onBits);    // WS2812 takes colors in GRB order
+  sei();
+  cli();
   sendBitx8( colBits , COLOR_R , onBits);    // WS2812 takes colors in GRB order
+  sei();
+  cli();
   sendBitx8( colBits , COLOR_B , onBits);    // WS2812 takes colors in GRB order  
   #ifdef COLOR_W 
     sendBitx8( colBits , COLOR_W , onBits);    // White for RGBW strips. Uncomment line above to use these strips. 
