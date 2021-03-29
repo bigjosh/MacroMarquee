@@ -8,7 +8,7 @@ using namespace std;
 // the programs here...
 // https://github.com/bigjosh/MacroMarquee/tree/master/Arduino
 
-// This version of fontconvert works with fonts from here...
+// A tiny 5x5 font from 
 // https://jared.geek.nz/2014/jan/custom-fonts-for-microcontrollers
 
 // defines ascii characters 0x20-0x7F (32-127)
@@ -18,6 +18,7 @@ using namespace std;
 #define INTERCHAR_SPACE 1
 #define ASCII_OFFSET 0x20    // ASSCI code of 1st char in font array
 
+const unsigned char font[96][8] = {
 	{0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}, //  
 	{0x00,0x5f,0x00,0x00,0x00,0x00,0x00,0x00}, // !
 	{0x00,0x03,0x00,0x03,0x00,0x00,0x00,0x00}, // "
@@ -148,7 +149,7 @@ int main()
     
     auto i=0;
     
-    while ( i < size( Font ) ) {
+    while ( i < size( font ) ) {
         
   
         if (isprint( c )) {
@@ -163,7 +164,7 @@ int main()
         
         for( auto j = 0; j < FONT_WIDTH; j++ ) {
             
-            cout << "       0b" << std::bitset<8>( reverse(Font[ i ][j] ) << 1) << ","  << std::endl ;
+            cout << "       0b" << std::bitset<8>( reverse(font[ i ][j] )) << ","  << std::endl ;
             
         }
         
