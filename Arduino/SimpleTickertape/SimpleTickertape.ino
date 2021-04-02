@@ -992,97 +992,7 @@ static __attribute__((always_inline)) inline void sendCol( byte colBits  ) {
   
 }
 
-// Here we define stuff to recieve the serial data. I guess we could have used the Arduino Serial class
-// here, but that code is more general, whereas we know exactly what we need to do so can get right to the point.
-// Also we do not want to turn on the TX pin since we might be using that for LEDs.
 
-// Must be big enough to hold serial data coming in while we are showing a message on the LEDs
-
-#define BUFFER_LEN 1000
-
-byte buffer[ BUFFER_LEN ];
-
-volatile byte * volatile buffer_head = buffer;      // Newly recieved bytes go here
-volatile byte *buffer_tail = buffer;                // Points to the first currently displayed (leftmost) char
-
-const byte *buffer_last = buffer +BUFFER_LEN -1;    // Remember the end of the buffer to we can test for it when incrementing to detect wrap at end
-
-// Increment the specified pointer with wrap if we get to the end
-// Two versions to match volatile and non-volatile. I could not figure out how to do this with a template and one function, can you?
-
- byte *increment_buffer_ptr( byte *ptr) {
-  if (ptr!=buffer_last) {
-    return ptr+1;
-  } else {
-    return buffer;
-  }
-}
-
- volatile byte *increment_buffer_ptr( volatile byte * volatile ptr) {
-  if (ptr!=buffer_last) {
-    return ptr+1;
-  } else {
-    return buffer;
-  }
-}
-
-// Return number of bytes currently in buffer
-
-unsigned buffer_count() {
-
-  if (buffer_head >= buffer_tail) {
-    return buffer_head-buffer_tail;
-  } else {
-    // This means that the head has already wrapped around so now tail as to catch up
-    // We figure this out by adding the byte from the tail to the end, and then also from the beginging to the head
-    return (buffer_last - buffer_tail +1) + (buffer_head -buffer);
-  }
-  
-}
-
-
-// Programatically add a char to the end of the buffer 
-// Inlined this since it is called from the serial ISR so we want to be quick about it. 
-
-void inline stuff_buffer( const byte b ) {
-  
-  volatile byte * const new_head = increment_buffer_ptr(buffer_head);        // Compute the new head after this char
-
-  if ( new_head != buffer_tail)  {             // Room for another char? If not, it is siently dropped
-      *buffer_head = b;
-      buffer_head = new_head;
-  }   
-  
-}
-
-
-// Programatically add some text to the end of the buffer 
-
-void stuff_buffer( const char *m ) {
-
-  while (*m) stuff_buffer(*(m++));
-  
-}
-
-
-// Interrupt handler, fired whenever a byte comes in on the RX pin. 
-// We grab the byte and stick it in our buffer (if we have room for it)
-
-ISR(USART_RX_vect) {
-
-  byte b = UDR0;      // Get newly recieved byte from the USART
-
-  stuff_buffer(b);    // Shoul be inlined above to avoid extra call/return in the ISR
-
-}
-
-// Enable recieve on RX pin at 9600,n,8,1 
-
-void init_serial() {
-  UBRR0 = 103;            // 9600bd at 16Mhz. From datahseet DS40001909A-page 222
-  UCSR0B |= 1 << RXEN0;   // Enable reciever on RX pin
-  UCSR0B |= 1 << RXCIE0;  // Enable recieve complete interrupt
-}
 
 // true if char is in the font
 
@@ -1109,14 +1019,15 @@ static inline const byte *getFirstColOfChar( const byte c ) {
 }
 
 // Send a full batch of data out to the LEDs
-// Starts at buffer_tail and keeps sending until all the LEDs are updated.
+
+// s points to an array of bytes that should be displayed. len is the number of bytes in that array to display. 
 
 // shift is the col of the current char to start at. By shifting though we can smooth scrool it across the width of the char. 
 // when shift=0 that means start at col 0, which means send the full char width of the first char.
 
 // Returns true there is more left in the buffer that did not fit on the display.
 
-byte updateLEDs( byte shift ) {
+byte updateLEDs( const byte *s , byte len , byte shift ) {
 
   // Here is how we do it: 
   // We start at the tail, which is the char at the leftmost position on the display (also closest to the Arduino)
@@ -1125,67 +1036,66 @@ byte updateLEDs( byte shift ) {
   // As we advance, we check to make sure we do not go past the head (the newest recieved chars). If we get to the head, we send blank
   // columns to pad out the rest of the display. 
   
-  unsigned pixel_count = PIXEL_COUNT;  // Fill all the LED pixels. Note it is actually ok to send too many pixels, just would be slower
+  unsigned pixel_count = PIXEL_COUNT;  // How many pixels left to fill on the display?
 
-  volatile byte *buffer_edge = buffer_tail;    // Start walking buffer_edge to the end of the string starting from tail (this is the letter we are currently sending)
-
-  volatile byte *buffer_head_snap = buffer_head;    // take a snapshot of the head becuase it can update in the background when new serial data comes in
-
-  // Sorry now comes several ugly optimizations. The code was much clearer, but it was too slow for the pixels. 
-  // Check out the clean version here https://github.com/bigjosh/MacroMarquee/blob/8fc8c4b1d1a43357b970d4f17a197309e4133168/Arduino/Tickertape/Tickertape.ino#L1054
-  
-  // First we step out the leftmost char, which could be shifted...
-  const byte *next_font_col =  getFirstColOfChar( *buffer_edge )+shift;    // Start at the shifted column
-  byte font_cols_left = FONT_WIDTH - shift ;
+  byte font_col =0;     // What column of the current char are we currently on? 
 
   cli();    // Disable ints while we send data to pixels so we do not get interrupted. 
 
-    
-  while (font_cols_left && pixel_count) {
-    
-    sendCol( pgm_read_byte_near( next_font_col++ ));    // Send next col of bits to LEDs. pgm_read stuff is becuase fontdata is PROGMEM.
-    pixel_count--;
-    
-    font_cols_left--;
+  while (len && pixel_count) {
 
-    if (!font_cols_left) {
+    if (shift) {
+      
+      shift--;
+      
+    } else {
 
-      buffer_edge= increment_buffer_ptr( buffer_edge );     // move on to next char
-  
-      if (buffer_edge == buffer_head_snap) {
-        goto FINISHED_BUFFER;                 // Sorry, but can you think of a better way to do this sequence that is not slower? 
-      }
-  
-      next_font_col = getFirstColOfChar( *buffer_edge );
-      font_cols_left = FONT_WIDTH;                    // full char    
-            
+      byte font_index = (*s) -ASCII_OFFSET;
+      
+      sendCol( pgm_read_byte_near( &fontdata[font_index ][font_col] ) );
+      pixel_count--;
+
     }
 
-    
-  }
- 
-  FINISHED_BUFFER:
+    font_col++;
 
-  // Fill any remaining pixels with blanks. This only happens when we first start up and buffer is empty. 
+    if (font_col==FONT_WIDTH) {
+
+      font_col=0;       
+      
+      s++;
+      len--;
+
+    }
+
+  }
+       
+
+  // Fill any remaining pixels with blanks. 
 
   while (pixel_count--) {
     sendCol(  0  );    // All pixels in column off               
   }
-
-  FINISHED_PIXELS:
     
   sei();  // All done with time critical stuff. 
 
   // Latch everything we just sent into the pixels so it is actually displayed
   show();
 
-  return buffer_edge != buffer_head_snap ;
+  return len;     // If len>0 then we ran out of pixels before we ran out of message to display
 }
 
 
+// Must be big enough to hold serial data coming in while we are showing a message on the LEDs
+
+#define BUFFER_LEN 1000
+
+byte buffer[ BUFFER_LEN ];
+
+volatile unsigned buffer_head = 0;      // New bytes get written at the end of the buffer here
+
 
 void setup() {
-  init_serial();
   
   PIXEL_DDR |= onBits;         // Set used pins to output mode
 
@@ -1201,7 +1111,7 @@ void setup() {
 
   // Show something on startup so we know it is working
   // (you can delete this branding if you are that kind of person)
-  stuff_buffer( "SimpleTickertape from JOSH.COM " );
+  //stuff_buffer( "SimpleTickertape from JOSH.COM " );
 }
 
 
@@ -1209,7 +1119,16 @@ byte shift = 0;
 
 unsigned long last_frame_time_ms = 0;
 
+
+const byte m[] = "0123456789";
+
 void loop() {  
+
+  updateLEDs( m , 10 , 2 );
+
+}
+
+/*
 
   byte moreFlag = updateLEDs(  shift );    // Draw the display, see if there is any data beyond the display currently 
 
@@ -1236,3 +1155,5 @@ void loop() {
 
 
 }
+
+*/
