@@ -1088,14 +1088,22 @@ byte updateLEDs( const byte *s , byte len , byte shift ) {
 
 // Must be big enough to hold serial data coming in while we are showing a message on the LEDs
 
-#define BUFFER_LEN 1000
+#define BUFFER_SIZE 1000
 
-byte buffer[ BUFFER_LEN ];
+byte buffer[ BUFFER_SIZE ];
 
-volatile unsigned buffer_head = 0;      // New bytes get written at the end of the buffer here
+volatile unsigned buffer_len = 0;      // Number of bytes currently in buffer
 
 
 void setup() {
+
+  // Set up serial
+
+  Serial.begin(9600);         // Set up the serial port for recieving
+
+  UCSR0B &= ~ _BV( TXEN0 );   // Disable the TX pin (digital pin 1) so we can use it for an LED string
+
+  // initialize LED strip pins
   
   PIXEL_DDR |= onBits;         // Set used pins to output mode
 
@@ -1119,12 +1127,20 @@ byte shift = 0;
 
 unsigned long last_frame_time_ms = 0;
 
-
 const byte m[] = "0123456789";
 
 void loop() {  
 
-  updateLEDs( m , 10 , 2 );
+  while (Serial.available()) {
+
+    int incomingByte = Serial.read();
+
+    if ( buffer_len < BUFFER_SIZE ) {
+      buffer[ buffer_len++] = (byte) incomingByte;
+    }
+  }
+
+  updateLEDs( buffer , buffer_len , 0 );
 
 }
 
