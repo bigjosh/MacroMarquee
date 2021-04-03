@@ -8,15 +8,11 @@
 
 // Change this to be at least as long as your pixel string (too long will work fine, just be a little slower)
 
-#define PIXEL_COUNT 600      // Length of the strings in pixels. I am using a 1 meter long strings that have 60 LEDs per meter. 
+#define PIXEL_COUNT 60      // Length of the strings in pixels. I am using a 1 meter long strings that have 60 LEDs per meter. 
 
 
-#define MAX_FRAME_DELAY_MS 50    // Max time in ms for each frame while scrolling. Lower numbers make for faster scrolling (until we run out of speed).
+#define FRAME_DELAY_MS 50    // Max time in ms for each frame while scrolling. Lower numbers make for faster scrolling (until we run out of speed).
                            // Note that we automatically start speeding up when the buffer starts getting full and then slow down again when it starts getting empty. 
-
-static const byte onBits=0b11111110;      // Which digital pins have LED strips attached? 
-                                          // If you do not want to use all 8 pins, you can mask off the ones you don't want to use with 0's.
-                                          // Here we mask off bit 0 so we can use the serial RX that is also on this pin on an Arduino Uno. 
 
 
 // Define the color we will send for on pixels. Each value is a byte 0-255. 
@@ -848,53 +844,39 @@ const byte fontdata[][FONT_WIDTH] PROGMEM = {
 #define PIXEL_DDR   DDRD   // Direction register of the pins the pixels are connected to
 
 // Sends a full 8 bits down all the pins, represening a single color of 1 pixel
-// We walk though the 8 bits in colorbyte one at a time. If the bit is 1 then we send the 8 bits of row out. Otherwise we send 0. 
-// We send onBits at the first phase of the signal generation. We could just send 0xff, but that mught enable pull-ups on pins that we are not using. 
 
-/// Unforntunately we have to drop to ASM for this so we can interleave the computaions durring the delays, otherwise things get too slow.
-
-// OnBits is the mask of which bits are connected to strips. We pass it on so that we
-// do not turn on unused pins becuase this would enable the pullup. Also, hopefully passing this
-// will cause the compiler to allocate a Register for it and avoid a reload every pass.
-
-// Assumes interrupts are *off* on entry and returns with them off, but it does turn them on between bits and can
-// tolerate being interrupted for up to 5us. 
-
-// Note that I would like to make this function ` __attribute__((always_inline)) `, but doing so cuases an endless loop someplace.
-// If you can figure out why, LMK and I'll send you a tee shirt.
+/// Assumes interrupts are *off* on entry and returns with them off.
 
 // At 16Mhz, each cycle is 62.5ns. We will aim for...
 // T0H 375ns =  6 cycles
 // T1H 750ns = 12 cycles
 // T1L 375ns =  6 cycles
 
-// Note that forcing this function inline actually slows things down between sends!
+// Send one bit to each LED string using WS2812B signaling based on the value of the coresponding bit in `bits`
+// EX: if bit #3 in `bits` is 1, then a 1 waveform is sent out on digital pin 3. 
 
-// Send one bit to each LED string using WS2812B signaling
-// EX: if bit #3 in `bits` is 1, then a 1 is sent out on digital pin 3. 
-
-static void inline sendBits( const byte bits , const byte onBits ) {  
+static void inline sendBits( const byte bits ) {  
               
     __asm__ __volatile__ (
                               
-      "out %[port], %[onBits] \n\t"                 // Send either T0H or the first part of T1H. Onbits is a mask of which bits have strings attached.
+      "out %[port], %[onBits] \n\t"                 // Both 0 and 1 waveforms start with signal going high
 
       "nop \n\t "                                   // (1 cycles) 
       "nop \n\t "                                   // (1 cycles) 
       "nop \n\t "                                   // (1 cycles) 
       "nop \n\t "                                   // (1 cycles) 
       "nop \n\t "                                   // (1 cycles) 
-      "out %[port], %[bits]   \n\t"              // (1 cycles) 
+      "out %[port], %[bits]   \n\t"                 // (1 cycles) - Any pins that have a `0` in `bits` will now go low forming a `0` signal 
                                                     // ==========
                                                     // (6 cycles) - T0H = 375ns
       
 
+      "nop \n\t "                                   // (1 cycles) - Any pins that had a `1` in `bits` are still high here.
       "nop \n\t "                                   // (1 cycles) 
       "nop \n\t "                                   // (1 cycles) 
       "nop \n\t "                                   // (1 cycles) 
       "nop \n\t "                                   // (1 cycles) 
-      "nop \n\t "                                   // (1 cycles) 
-      "out %[port], __zero_reg__ \n\t"              // (1 cycles) 
+      "out %[port], __zero_reg__ \n\t"              // (1 cycles) - Now all pins that were sending a `1` now go low. 
                                                     // ==========
                                                     // (6 cycles) - T0H = 375ns
 
@@ -902,11 +884,13 @@ static void inline sendBits( const byte bits , const byte onBits ) {
       ::                                            // No outputs
       [port]    "I" (_SFR_IO_ADDR(PIXEL_PORT)),
       [bits]   "d" (bits),
-      [onBits]   "d" (onBits)
+      [onBits]   "d" (0xff)
       
     );
+
+    // We assume here that whatever called `sendBits()` will take long enough to call it again that we will have some space between the signals.
                                   
-    // Note that the inter-bit gap can be as long as you want as long as it doesn't exceed the reset timeout (which is a long time)
+    // Note that the inter-bit gap can be as long as you want as long as it doesn't exceed the reset timeout (which is a relatively long 5us)
     
 } 
 
@@ -915,146 +899,7 @@ static void inline sendBits( const byte bits , const byte onBits ) {
 // This is the "RESET" period in the WS2812B datasheets
 
 void show() {
-  delayMicroseconds( (RES_NS / 1000UL) + 1);       // Round up since the delay must be _at_least_ this long (too short might not work, too long not a problem)
-}
-
-
-// Size of array from https://stackoverflow.com/a/18078435/3152071
-template<class T, size_t N>
-constexpr size_t size(T (&)[N]) { return N; }
-
-// Send a byte of color data out the pins to the LED strings
-// If bit `n` in `bits` is 1, then the byte `color` is sent on digital pin `n`. Otherwise the byte 0x00 is sent on that pin. 
-
-// Note WS2812B strips expect the color bits in highest-bit-first order as per datasheet.
-
-static inline void sendByte( const byte bits , byte color , const byte onBits ) {
-
-    sendBits( (color & 0b10000000) ? bits : 0x00 , onBits);
-    sendBits( (color & 0b01000000) ? bits : 0x00 , onBits);
-    sendBits( (color & 0b00100000) ? bits : 0x00 , onBits);    
-    sendBits( (color & 0b00010000) ? bits : 0x00 , onBits);
-    sendBits( (color & 0b00001000) ? bits : 0x00 , onBits);
-    sendBits( (color & 0b00000100) ? bits : 0x00 , onBits);
-    sendBits( (color & 0b00000010) ? bits : 0x00 , onBits);    
-    sendBits( (color & 0b00000001) ? bits : 0x00 , onBits);
-  
-}
-
-// Send 3 bytes of color data (R,G,B) for a signle pixel down all the connected strings at the same time
-// A 1 bit in "row" means send the color, a 0 bit means send black. 
-// Assumes interrupts are OFF, but turns them on briefly between bytes since this is when we have the most time to
-// allow some latency - about 5us for older WS2812Bs, much longer for newer ones. Our serial ISR takes much less than 5us,
-// so should be no problem. 
-
-// Note that WS2812B strips expect color bytes in G,R,B order as per datasheet. 
-
-static inline void sendCol( byte colBits  ) {  
-
-
-  sendByte( colBits , COLOR_G , onBits);    // WS2812 takes colors in GRB order
-  PORTB |=0x02; asm("sei\n\t nop\n\t cli\n\t");PORTB &= ~0x02;
-  sendByte( colBits , COLOR_R , onBits);    // WS2812 takes colors in GRB order
-  PORTB |=0x02; asm("sei\n\t nop\n\t cli\n\t"); PORTB &= ~0x02; 
-  //sei();cli();
-  sendByte( colBits , COLOR_B , onBits);    // WS2812 takes colors in GRB order  
-  #ifdef COLOR_W 
-    sendByte( colBits , COLOR_W , onBits);    // White for RGBW strips. Uncomment line above to use these strips. 
-  #endif
-  
-}
-
-
-
-// true if char is in the font
-
-static constexpr byte isValidChar( const byte b ) {
-  return (b>=ASCII_OFFSET) && (b<(ASCII_OFFSET+size(fontdata)));
-}
-
-// Returns a pointer to the first column of the specified ascii char in the font
-// if the char is not in the font, then is returns the first col of ASCII_NONPRINT
-// Note this is retruning a pointer inside fontdata which is in PROGMEM 
-
-static inline const byte *getFirstColOfChar( const byte c ) {
-
-  if (isValidChar( c )) {
-  
-    return fontdata[ c- ASCII_OFFSET ];
-
-  } else {
-
-    return fontdata[ ASCII_NONPRINT- ASCII_OFFSET ];    // We don not have font data for ths ASCCI, so show the specified non-printable symbol instead
-    
-  }
-  
-}
-
-// Send a full batch of data out to the LEDs
-
-// s points to an array of bytes that should be displayed. len is the number of bytes in that array to display. 
-
-// shift is the col of the current char to start at. By shifting though we can smooth scrool it across the width of the char. 
-// when shift=0 that means start at col 0, which means send the full char width of the first char.
-
-// Returns true there is more left in the buffer that did not fit on the display.
-
-byte updateLEDs( const byte *s , byte len , byte shift ) {
-
-  // Here is how we do it: 
-  // We start at the tail, which is the char at the leftmost position on the display (also closest to the Arduino)
-  // We start at the column specified by "shift" and start sending out the columns until we get to the end of this first char
-  // and then we advance to the next char and send all of its columns and keep sending until we have filled the entire LED display (PIXEL_WIDTH).
-  // As we advance, we check to make sure we do not go past the head (the newest recieved chars). If we get to the head, we send blank
-  // columns to pad out the rest of the display. 
-  
-  unsigned pixel_count = PIXEL_COUNT;  // How many pixels left to fill on the display?
-
-  byte font_col =0;     // What column of the current char are we currently on? 
-
-  cli();    // Disable ints while we send data to pixels so we do not get interrupted. 
-
-  while (len && pixel_count) {
-
-    if (shift) {
-      
-      shift--;
-      
-    } else {
-
-      byte font_index = (*s) -ASCII_OFFSET;
-      
-      sendCol( pgm_read_byte_near( &fontdata[font_index ][font_col] ) );
-      pixel_count--;
-
-    }
-
-    font_col++;
-
-    if (font_col==FONT_WIDTH) {
-
-      font_col=0;       
-      
-      s++;
-      len--;
-
-    }
-
-  }
-       
-
-  // Fill any remaining pixels with blanks. 
-
-  while (pixel_count--) {
-    sendCol(  0  );    // All pixels in column off               
-  }
-    
-  sei();  // All done with time critical stuff. 
-
-  // Latch everything we just sent into the pixels so it is actually displayed
-  show();
-
-  return len;     // If len>0 then we ran out of pixels before we ran out of message to display
+  _delay_us( (RES_NS / 1000UL) + 1);       // Round up since the delay must be _at_least_ this long (too short might not work, too long not a problem)
 }
 
 
@@ -1066,107 +911,227 @@ byte buffer[ BUFFER_SIZE ];
 
 volatile unsigned buffer_len = 0;      // Number of bytes currently in buffer
 
+// Add a byte to the end of the buffer. Siliently discards byte if buffer already full. 
 
-void setup() {
+void inline appendToBuffer( const byte b ) {
 
-  // Set up serial
-
-  Serial.begin(9600);         // Set up the serial port for recieving
-
-  UCSR0B &= ~ _BV( TXEN0 );   // Disable the TX pin (digital pin 1) so we can use it for an LED string
-
-  // initialize LED strip pins
+  if ( buffer_len < BUFFER_SIZE ) {
+    buffer[ buffer_len++ ] = b;
+  }
   
-  PIXEL_DDR |= onBits;         // Set used pins to output mode
-
-  // This seems to reset some stuck pixels and leaves all outputs cleanly low
-  PIXEL_PORT |= onBits;       // Set all outputs to 1
-  delay( 100);
-  PIXEL_PORT &= ~onBits;       // Set all outputs to 0
-  delay( 100);
-  PIXEL_PORT |= onBits;       // Set all outputs to 1
-  delay( 100);
-  PIXEL_PORT &= ~onBits;       // Set all outputs to 0
-  delay( 100);
-
-  // Show something on startup so we know it is working
-  // (you can delete this branding if you are that kind of person)
-  //stuff_buffer( "SimpleTickertape from JOSH.COM " );
-
-  DDRB=0x02;
 }
 
 
+void appendStringToBuffer( const char *s ) {
+
+  while (*s) {
+    appendToBuffer( *s );
+    s++;
+  }
+  
+}
+
+
+// Check if a byte is available from the serial port. If so, read it and add it to the buffer. 
+
+void inline serialPollRX() {
+  
+  if (UCSR0A & _BV(RXC0) ) {      // If there is a byte ready in the recieve buffer
+    appendToBuffer( UDR0 );       // Read it and add to our buffer. Note reading the byte clears the RXC0 flag
+  }
+  
+}
+
+// Send a byte of color data out the pins to the LED strings
+// If bit `n` in `bits` is 1, then the byte `color` is sent on digital pin `n`. Otherwise the byte 0x00 is sent on that pin. 
+
+// Note WS2812B strips expect the color bits in highest-bit-first order as per datasheet.
+
+static inline void sendByte( const byte bits , byte color ) {
+
+    sendBits( (color & 0b10000000) ? bits : 0x00 );
+    sendBits( (color & 0b01000000) ? bits : 0x00 );
+    sendBits( (color & 0b00100000) ? bits : 0x00 );    
+    sendBits( (color & 0b00010000) ? bits : 0x00 );
+    sendBits( (color & 0b00001000) ? bits : 0x00 );
+    sendBits( (color & 0b00000100) ? bits : 0x00 );
+    sendBits( (color & 0b00000010) ? bits : 0x00 );    
+    sendBits( (color & 0b00000001) ? bits : 0x00 );
+  
+}
+
+// Send 3 bytes of color data (R,G,B) for a single pixel down all the connected strings at the same time
+
+// Note that WS2812B strips expect color bytes in G,R,B order as per datasheet. 
+
+static inline void sendCol( byte colBits  ) {  
+
+  sendByte( colBits , COLOR_G );    // WS2812 takes colors in GRB order
+  
+  serialPollRX();                   // Poll serial port to see if anything new came in. This is the best time to do it when we have some extra time.
+  
+  sendByte( colBits , COLOR_R );    // WS2812 takes colors in GRB order
+  
+  serialPollRX();                   // Poll serial port to see if anything new came in. This is the best time to do it when we have some extra time.
+  
+  sendByte( colBits , COLOR_B );    // WS2812 takes colors in GRB order  
+  
+  #ifdef COLOR_W 
+    sendByte( colBits , COLOR_W );    // White for RGBW strips. Uncomment line above to use these strips. 
+  #endif
+  
+}
+
+// Send a full batch of data out to the LEDs
+
+// s points to an array of bytes that should be displayed. len is the number of bytes in that array to display. 
+
+// shift will shift the display `shift` columns to the left. By shifting through we can smooth scroll it across the width of the char. 
+// when shift=0 that means start at col 0, which means send the full char width of the first char.
+
+// Returns true if there is more left in the buffer that did not fit on the display.
+
+byte updateLEDs( const byte *s , unsigned len , byte shift ) {
+ 
+  unsigned pixel_count = PIXEL_COUNT;  // How many pixels left to fill on the display?
+
+  byte font_col =0;     // What column of the current font char are we currently on? 
+
+  while (len && pixel_count) {
+
+    if (shift) {
+
+      // Use up all the shift columns without actually sending them to the display
+      shift--;
+      
+    } else {
+
+      byte font_index = (*s) -ASCII_OFFSET;     // The letter in the font of the current byte to display
+      
+      sendCol( pgm_read_byte_near( &fontdata[font_index ][font_col] ) );    // The column in the font of the current letter (read from PROGMEM)
+      pixel_count--;
+
+    }
+
+    font_col++;
+
+    if (font_col==FONT_WIDTH) {       // Finished with this letter?
+
+      // Move on to next letter
+
+      font_col=0;       
+      
+      s++;
+      len--;
+
+    }
+
+  }
+       
+
+  // If the display is longer than the string, fill any remaining pixels with blanks
+
+  while (pixel_count--) {
+    sendCol(  0  );    // All pixels in column off               
+  }
+    
+  // Latch everything we just sent into the pixels so it is actually displayed
+  show();
+
+  return len>0;     // If len>0 then we ran out of pixels before we ran out of message to display
+}
+
+
+
+
+
+void setup() {
+
+  // Set up serial. We really only use the Ardunio `Serial` class to initialize the port for us, after that we do everything
+  // ourselves manually becuase we need to keep interrupts off and the Aurduino stuff is just too slow for our timing requirements. 
+
+  Serial.begin(9600);         // Set up the serial port for recieving
+
+  UCSR0B &= ~ _BV( TXEN0 );   // Disable the serial TX pin (digital pin 1) so we can use it as digital IO for an LED string
+                              // Note that you can remove this line if you want to have bidirectional serial communication, 
+                              // but then you will loose a string of LEDS and will need to make the font be only 6 pixels tall.
+                              
+  // initialize LED strip pins
+  
+  PIXEL_DDR |= 0xff;         // Set all 8 pins to output mode (note that digital pin 0 is controlled by the serial port so this has no effect on it)
+
+  // This blinking signal seems to reset some stuck pixels and leaves all outputs cleanly low
+  PIXEL_PORT |= 0xff;       // Set all outputs to 1
+  delay( 100);
+  PIXEL_PORT &= ~0xff;      // Set all outputs to 0
+  delay( 100);
+  PIXEL_PORT |= 0xff;       // Set all outputs to 1
+  delay( 100);
+  PIXEL_PORT &= ~0xff;      // Set all outputs to 0
+  delay( 100);
+
+
+  // Turn off interrupts, forever. For now on we are repsonsible for polling the incoming serial data.
+  // We turn off interrupts becuase if they happen durring our WS2812B waveform generation then they will mess up 
+  // our timing. We can not just turn them off durring waveform generation and then turn back on when we are done becuase
+  // they would be off long enough to drop bytes, so we have to poll. 
+  
+  cli();
+
+  // Show something on startup so we know it is working
+  // (you can delete this branding if you are that kind of person)
+  
+  appendStringToBuffer( "SimpleTickertape from JOSH.COM " );
+
+}
+
+// Shift keeps track of how many columns shifted over the display currently is. By shifting one column at a 
+// time, we can smoothly scroll text across the display.
 byte shift = 0;
-
-unsigned long next_frame_ms = 0; 
-
-unsigned long last_frame_time_ms = 0;
-
-const byte m[] = "0123456789";
 
 void loop() {  
 
-  while (Serial.available()) {
+  // Delay so text does not scroll to quickly...
+  // Remeber we can not use millis() here since interrupts are permenetly off
+  // We also have to manually keep checking the serial RX so that it doe snot overflow
 
-    int incomingByte = Serial.read();
-
-    if ( buffer_len < BUFFER_SIZE ) {
-      buffer[ buffer_len++] = (byte) incomingByte;
-    }
+  for( unsigned i=0;i < FRAME_DELAY_MS ; i++ ) {
+    _delay_us(900);   // Pool just often enough that we do not miss any serial bytes at 9600bd (1 byte about 1ms) 
+    serialPollRX();
   }
 
-  if ( millis() >= next_frame_ms ) {
+  // Send out the signals to the LEDs
 
-    byte more_flag = updateLEDs( buffer , buffer_len , shift );
-    next_frame_ms = millis() + MAX_FRAME_DELAY_MS ; 
+  byte more_flag = updateLEDs( buffer , buffer_len , shift );
 
-    if (more_flag) {
+  if (more_flag) {
 
-      shift++;
+    // If there is more of the buffer to display, then we shift over one column before the next update to smooth scroll forward
 
-      if (shift== FONT_WIDTH) {
+    shift++;
 
-        shift = 0 ;
+    // If shifting gets us to the end of the current char, then we move everything forward by one char
 
-        buffer_len--;
-        
-        memmove( buffer , buffer+1 , buffer_len );
+    if (shift== FONT_WIDTH) {
+
+      shift = 0 ;
+
+      buffer_len--;
+
+      // Shift the buffer to the left 1 full char 
+      // Note we can not use `memmove()` for this becuase it takes too long and we might drop serial chars while it is running
+      // so we do it manyally so we can keep pooling the serial port the whole time. 
+      
+      for( unsigned i =0; i < buffer_len ; i++ ) {
+          
+          buffer[i] = buffer[i+1];
+          serialPollRX();
         
       }
       
     }
     
   }
+  
 
 }
-
-/*
-
-  byte moreFlag = updateLEDs(  shift );    // Draw the display, see if there is any data beyond the display currently 
-
-
-  if ( moreFlag )  {                      // If there is more text in the buffer, we will scroll it out 1 column at a time
-
-    // There is more in the buffer to display
-
-    float buffer_fullness = 1.0 *  buffer_count() / BUFFER_LEN;    // How full is the buffer? 0.0-1.0
-
-    // Here we adjust our speed based on how full the buffer is to help empty it quicker when it starts to get full.
-    // We actually use the square of the speed so that things stay slow and readable until the buffer really
-    // starts to get full. 
-    unsigned delay_ms = 1.0* MAX_DELAY_MS * ( 1.0 - (buffer_fullness * buffer_fullness));
-    delay( delay_ms ); 
-
-    shift++;                              // Shift current char forward one column
-
-    if (shift == FONT_WIDTH) {            // If we are done with this char, on to the next one
-      buffer_tail = increment_buffer_ptr( buffer_tail );
-      shift = 0;      
-    }
-  }
-
-
-}
-
-*/
