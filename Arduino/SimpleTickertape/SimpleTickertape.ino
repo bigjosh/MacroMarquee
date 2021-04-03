@@ -8,10 +8,10 @@
 
 // Change this to be at least as long as your pixel string (too long will work fine, just be a little slower)
 
-#define PIXEL_COUNT 60      // Length of the strings in pixels. I am using a 1 meter long strings that have 60 LEDs per meter. 
+#define PIXEL_COUNT 600      // Length of the strings in pixels. I am using a 1 meter long strings that have 60 LEDs per meter. 
 
 
-#define MAX_DELAY_MS 50    // Max time in ms for each frame while scrolling. Lower numbers make for faster scrolling (until we run out of speed).
+#define MAX_FRAME_DELAY_MS 50    // Max time in ms for each frame while scrolling. Lower numbers make for faster scrolling (until we run out of speed).
                            // Note that we automatically start speeding up when the buffer starts getting full and then slow down again when it starts getting empty. 
 
 static const byte onBits=0b11111110;      // Which digital pins have LED strips attached? 
@@ -21,9 +21,9 @@ static const byte onBits=0b11111110;      // Which digital pins have LED strips 
 
 // Define the color we will send for on pixels. Each value is a byte 0-255. 
 
-#define COLOR_R 0x00                                          
+#define COLOR_R 0x40                                          
 #define COLOR_G 0x00                                          
-#define COLOR_B 0x20     
+#define COLOR_B 0x00     
 //#define COLOR_W 0x00     // Uncomment this line if you are using RGBW LED strips
 
 /*------------------- FONT CUT TOP HERE -------------------------------*/
@@ -870,86 +870,39 @@ const byte fontdata[][FONT_WIDTH] PROGMEM = {
 
 // Note that forcing this function inline actually slows things down between sends!
 
-static void inline  sendBitx8(  const byte row , const byte colorbyte , const byte onBits ) {  
+// Send one bit to each LED string using WS2812B signaling
+// EX: if bit #3 in `bits` is 1, then a 1 is sent out on digital pin 3. 
+
+static void inline sendBits( const byte bits , const byte onBits ) {  
               
     __asm__ __volatile__ (
-      
-      // Ok, we will use __tmp_reg as both our bitwalker and our loop counter. We start at 0b10000000 and shift the 1 bit down until it it gone.
-      // Unfortunately there is no way to load an immedeate value into __tmp_reg__ so this messy sec/ror is the best I could come up with. Is there a better way?
-            
-      "mov __tmp_reg__,__zero_reg__ \n\t"           // We will walk this bit down 8 times to test bits in colorbyte and also as our loop counter
-      "sec \n\t"
-      "ror __tmp_reg__ \n\t"           // We will walk this bit down 8 times to test bits in colorbyte and also as our loop counter
-
-      "L_%=: \n\t"  
-
-            
+                              
       "out %[port], %[onBits] \n\t"                 // Send either T0H or the first part of T1H. Onbits is a mask of which bits have strings attached.
 
-      // Next determine if we are going to be sending 1s or 0s based on the current bit in the color....
-       
-      "push __tmp_reg__ \n\t"                       // (2 cycles)  - I know it seems silly to push this, but it saves a register and we have time to waste here anyway.
-      "and __tmp_reg__, %[colorbyte] \n\t"          // (1 cycles)  - is the current bit in the color byte set?
+      "nop \n\t "                                   // (1 cycles) 
+      "nop \n\t "                                   // (1 cycles) 
+      "nop \n\t "                                   // (1 cycles) 
+      "nop \n\t "                                   // (1 cycles) 
+      "nop \n\t "                                   // (1 cycles) 
+      "out %[port], %[bits]   \n\t"              // (1 cycles) 
+                                                    // ==========
+                                                    // (6 cycles) - T0H = 375ns
       
-      "brne ON_%= \n\t"                             // (1 cycles) - bit in color is 0, then send full zero row (takes 2 cycles if branch taken, count the extra 1 on the target line)
 
-      "nop \n\t "                                   // (1 cycles) - Balances out the extra cycle on the other branch path
-
-      "out %[port], __zero_reg__ \n\t"              // (1 cycles) - set the output bits to 0x00 based on the bit in colorbyte. This is phase for T0H-T1H
+      "nop \n\t "                                   // (1 cycles) 
+      "nop \n\t "                                   // (1 cycles) 
+      "nop \n\t "                                   // (1 cycles) 
+      "nop \n\t "                                   // (1 cycles) 
+      "nop \n\t "                                   // (1 cycles) 
+      "out %[port], __zero_reg__ \n\t"              // (1 cycles) 
                                                     // ==========
                                                     // (6 cycles) - T0H = 375ns
 
-      "rjmp NEXT_%= \n\t"                           // (2 cycles) 
-
-
-      "ON_%=: \n\r"                                 // (1 cycles) - Note that we land here becuase of breq, which takes takes 2 cycles 
-
-      
-      // If we get here, then we want to send a 1 for every row that has an ON dot...
-      // So if there is a 1 in [row] then the output will still high, otherwise it will go low
-      // making a short zero bit signal. 
-      "out %[port], %[row]   \n\t"                  // (1 cycles) - set the output bits to [row] This is phase for T0H-T1H.
-                                                    // ==========
-                                                    // (6 cycles) - T0H (Phase #1) 4 cycles / 16Mhz = 375 nanoseconds. We should be able to get by with 200ns, but I found a WS2813 that says 300ns. 
-
-                                                    // Right here the 1 bits are still high.
-
-      "nop \n\t nop \n\t "                          // (2 cycles) 
-
-                  
-      "NEXT_%=: \n\t"                               // Either way we got here, we are at 8 cycles. We need to get to 12. 
-
-
-      "pop __tmp_reg__  \n\t"                       // (2 cycles)  -  Pop our bitwalker that we pushed above
-
-      "nop \n\t "                                   // (1 cycles) 
-
-      "out %[port], __zero_reg__ \n\t"              // (1 cycles) - set the output bits to 0x00 based on the bit in colorbyte. This is phase for T0H-T1H
-                                                    // ==========
-                                                    // (12 cycles)- T1H (Phase #2 ) 12 cycles / 16Mhz = 750ns      
-
-      // OK we are done sending this set of bits. Now we need a bit of space for time between bits (T1L 375ns, 6 cycles) 
-
-
-      "nop \n\t nop \n\t "                          // (2 cycles) 
-
-      "nop \n\t "                                   // (1 cycles)      
-
-      "lsr __tmp_reg__ \n\t "                       // (1 cycles) - get ready for next pass. On last pass, the bit will end up in C flag
-                  
-      "brcc L_%= \n\t"                              // (2 cycles if loop followed) Exit if carry bit is set as a result of us walking all 8 bits. 
-                                                    // If above loop is taken, then full 6 cycles for T1L
-
-                                                    // Above is 6 cycles including either the return + next call , or the brcc branch + cli at top
-
-      //"break \n\r"
-
           
-      ::                                          // No outputs
+      ::                                            // No outputs
       [port]    "I" (_SFR_IO_ADDR(PIXEL_PORT)),
-      [row]   "d" (row),
-      [onBits]   "d" (onBits),
-      [colorbyte]   "d" (colorbyte )             // Phase 2 of the signal where the actual data bits show up.                
+      [bits]   "d" (bits),
+      [onBits]   "d" (onBits)
       
     );
                                   
@@ -970,6 +923,23 @@ void show() {
 template<class T, size_t N>
 constexpr size_t size(T (&)[N]) { return N; }
 
+// Send a byte of color data out the pins to the LED strings
+// If bit `n` in `bits` is 1, then the byte `color` is sent on digital pin `n`. Otherwise the byte 0x00 is sent on that pin. 
+
+// Note WS2812B strips expect the color bits in highest-bit-first order as per datasheet.
+
+static inline void sendByte( const byte bits , byte color , const byte onBits ) {
+
+    sendBits( (color & 0b10000000) ? bits : 0x00 , onBits);
+    sendBits( (color & 0b01000000) ? bits : 0x00 , onBits);
+    sendBits( (color & 0b00100000) ? bits : 0x00 , onBits);    
+    sendBits( (color & 0b00010000) ? bits : 0x00 , onBits);
+    sendBits( (color & 0b00001000) ? bits : 0x00 , onBits);
+    sendBits( (color & 0b00000100) ? bits : 0x00 , onBits);
+    sendBits( (color & 0b00000010) ? bits : 0x00 , onBits);    
+    sendBits( (color & 0b00000001) ? bits : 0x00 , onBits);
+  
+}
 
 // Send 3 bytes of color data (R,G,B) for a signle pixel down all the connected strings at the same time
 // A 1 bit in "row" means send the color, a 0 bit means send black. 
@@ -977,17 +947,19 @@ constexpr size_t size(T (&)[N]) { return N; }
 // allow some latency - about 5us for older WS2812Bs, much longer for newer ones. Our serial ISR takes much less than 5us,
 // so should be no problem. 
 
-static __attribute__((always_inline)) inline void sendCol( byte colBits  ) {
+// Note that WS2812B strips expect color bytes in G,R,B order as per datasheet. 
 
-  sendBitx8( colBits , COLOR_G , onBits);    // WS2812 takes colors in GRB order
-  sei();
-  cli();
-  sendBitx8( colBits , COLOR_R , onBits);    // WS2812 takes colors in GRB order
-  sei();
-  cli();
-  sendBitx8( colBits , COLOR_B , onBits);    // WS2812 takes colors in GRB order  
+static inline void sendCol( byte colBits  ) {  
+
+
+  sendByte( colBits , COLOR_G , onBits);    // WS2812 takes colors in GRB order
+  PORTB |=0x02; asm("sei\n\t nop\n\t cli\n\t");PORTB &= ~0x02;
+  sendByte( colBits , COLOR_R , onBits);    // WS2812 takes colors in GRB order
+  PORTB |=0x02; asm("sei\n\t nop\n\t cli\n\t"); PORTB &= ~0x02; 
+  //sei();cli();
+  sendByte( colBits , COLOR_B , onBits);    // WS2812 takes colors in GRB order  
   #ifdef COLOR_W 
-    sendBitx8( colBits , COLOR_W , onBits);    // White for RGBW strips. Uncomment line above to use these strips. 
+    sendByte( colBits , COLOR_W , onBits);    // White for RGBW strips. Uncomment line above to use these strips. 
   #endif
   
 }
@@ -1120,10 +1092,14 @@ void setup() {
   // Show something on startup so we know it is working
   // (you can delete this branding if you are that kind of person)
   //stuff_buffer( "SimpleTickertape from JOSH.COM " );
+
+  DDRB=0x02;
 }
 
 
 byte shift = 0;
+
+unsigned long next_frame_ms = 0; 
 
 unsigned long last_frame_time_ms = 0;
 
@@ -1140,7 +1116,28 @@ void loop() {
     }
   }
 
-  updateLEDs( buffer , buffer_len , 0 );
+  if ( millis() >= next_frame_ms ) {
+
+    byte more_flag = updateLEDs( buffer , buffer_len , shift );
+    next_frame_ms = millis() + MAX_FRAME_DELAY_MS ; 
+
+    if (more_flag) {
+
+      shift++;
+
+      if (shift== FONT_WIDTH) {
+
+        shift = 0 ;
+
+        buffer_len--;
+        
+        memmove( buffer , buffer+1 , buffer_len );
+        
+      }
+      
+    }
+    
+  }
 
 }
 
