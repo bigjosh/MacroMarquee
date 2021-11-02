@@ -85,7 +85,7 @@ static inline void sendBitx8(  const uint8_t row , const uint8_t colorbyte , con
       // making a short zero bit signal. 
       "out %[port], %[row]   \n\t"                  // (1 cycles) - set the output bits to [row] This is phase for T0H-T1H.
                                                     // ==========
-                                                    // (5 cycles) - T0H (Phase #1) 4 cycles / 16Mhz = 310 nanoseconds. We should be able to get by with 200ns, but I found a WS2813 that says 300ns. :\
+                                                    // (5 cycles) - T0H (Phase #1) 4 cycles / 16Mhz = 310 nanoseconds. We should be able to get by with 200ns, but I found a WS2813 that says 300ns. 
 
       "sei \n\t"                                    // (1 cycles) OK to reenable interrupt now - T0H is the only timing sensitive phase https://wp.josh.com/2014/05/13/ws2812-neopixels-are-not-so-finicky-once-you-get-to-know-them/
                                                     
@@ -1001,7 +1001,7 @@ void drawString( const char *s , int start_col ) {
 
   unsigned int l=PIXEL_COUNT; // L is the col we are currently sending to the LEDs. Note we do not start sending to the LEDs until we get to start_col 
 
-  unsigned int col = 0;       // col we are at in the input string 
+  int col = 0;       // col we are at in the input string 
 
   while (l && start_col < 0) {
     sendCol( 0  );    
@@ -1090,7 +1090,7 @@ void scrollString( const char *s ) {
 
   for( int step= -1 * pixel_len ; step<  pixel_len ; step++ ) {   // step though each column of the 1st char for smooth scrolling
 
-    sendString( s , step  );    // Nice and not-too-bright blue hue         
+    drawString( s , step  );    // Nice and not-too-bright blue hue         
     delay(10);
      
   }
@@ -1160,7 +1160,7 @@ void loop() {
   
   while (1) {
     scrollString(  "josh is #440000very#000040 nice and I like him." );
-    sendString( "1234567890." , x  );
+    drawString( "1234567890." , x  );
     x++;
     delay(1000);
   }
@@ -1168,5 +1168,3 @@ void loop() {
   scrollString( jabberText );
 
 }
-
-
